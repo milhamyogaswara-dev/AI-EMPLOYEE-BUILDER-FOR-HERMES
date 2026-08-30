@@ -1,0 +1,152 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --bg-primary: #0A0A0A;
+    --bg-surface: #121212;
+    --bg-surface-elevated: #181818;
+    --border-subtle: rgba(240, 240, 240, 0.08);
+    --border-highlight: rgba(240, 240, 240, 0.2);
+    --text-primary: #F0F0F0;
+    --text-secondary: #AAAAAA;
+    --text-muted: #666666;
+    --accent-vermilion: #FF5F1F;
+    --accent-glow: rgba(255, 95, 31, 0.25);
+  }
+
+  body {
+    background-color: #0A0A0A;
+    color: #F0F0F0;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+
+  /* Universal Global Form Input & Visibility Styling */
+  input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']),
+  textarea,
+  select {
+    color: #F0F0F0;
+    background-color: #0F0F0F;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    font-weight: 500;
+    transition: all 0.15s ease-in-out;
+  }
+
+  input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file'])::placeholder,
+  textarea::placeholder {
+    color: #666666;
+    opacity: 1;
+    font-weight: 400;
+  }
+
+  input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']):focus,
+  textarea:focus,
+  select:focus {
+    outline: none;
+    border-color: #FF5F1F;
+    box-shadow: 0 0 0 1px #FF5F1F;
+  }
+
+  select option {
+    background-color: #141414;
+    color: #F0F0F0;
+  }
+
+  /* Light card overrides */
+  .bg-white input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']),
+  .bg-white textarea,
+  .bg-white select {
+    background-color: #FFFFFF;
+    color: #0F172A;
+    border-color: #CBD5E1;
+  }
+
+  .bg-white input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file'])::placeholder,
+  .bg-white textarea::placeholder {
+    color: #94A3B8;
+  }
+
+  .bg-white input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']):focus,
+  .bg-white textarea:focus,
+  .bg-white select:focus {
+    border-color: #4F46E5;
+    box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.2);
+  }
+}
+
+.font-serif {
+  font-family: 'Playfair Display', Georgia, serif;
+}
+
+.font-sans {
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+.font-mono {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* Artistic Flair Asymmetric & Architectural Borders */
+.asymmetric-border {
+  border-top: 1px solid rgba(240, 240, 240, 0.15);
+  border-left: 1px solid rgba(240, 240, 240, 0.15);
+  border-right: 1px solid rgba(240, 240, 240, 0.05);
+  border-bottom: 1px solid rgba(240, 240, 240, 0.05);
+}
+
+.asymmetric-accent {
+  position: relative;
+}
+.asymmetric-accent::before {
+  content: '';
+  position: absolute;
+  top: -1px;
+  right: -1px;
+  width: 14px;
+  height: 14px;
+  border-top: 2px solid #FF5F1F;
+  border-right: 2px solid #FF5F1F;
+  pointer-events: none;
+}
+
+.vermilion-glow {
+  box-shadow: 0 0 25px rgba(255, 95, 31, 0.2);
+}
+
+.vermilion-dot {
+  background-color: #FF5F1F;
+  box-shadow: 0 0 8px #FF5F1F;
+}
+
+.vertical-text {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+}
+
+/* Custom subtle dark scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #0A0A0A;
+}
+::-webkit-scrollbar-thumb {
+  background: #262626;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #FF5F1F;
+}
+
+/* Light Mode Support */
+html[data-theme='light'] {
+  filter: invert(1) hue-rotate(180deg);
+  background: white;
+}
+
+/* Re-invert media so they don't look weird */
+html[data-theme='light'] img,
+html[data-theme='light'] video,
+html[data-theme='light'] iframe {
+  filter: invert(1) hue-rotate(180deg);
+}

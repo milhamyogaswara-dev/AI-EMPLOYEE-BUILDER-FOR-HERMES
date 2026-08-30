@@ -1,0 +1,92 @@
+{
+  "collections": [
+    {
+      "name": "users",
+      "rules": [
+        "allow read, write: if request.auth != null && request.auth.uid == documentId"
+      ],
+      "subcollections": [
+        {
+          "name": "assistants",
+          "rules": [
+            "allow read, write: if request.auth != null && request.auth.uid == parentIds.users"
+          ],
+          "subcollections": [
+            {
+              "name": "skills",
+              "rules": [
+                "allow read, write: if request.auth != null && request.auth.uid == parentIds.users"
+              ]
+            },
+            {
+              "name": "sops",
+              "rules": [
+                "allow read, write: if request.auth != null && request.auth.uid == parentIds.users"
+              ]
+            },
+            {
+              "name": "memories",
+              "rules": [
+                "allow read, write: if request.auth != null && request.auth.uid == parentIds.users"
+              ]
+            },
+            {
+              "name": "trainingRules",
+              "rules": [
+                "allow read, write: if request.auth != null && request.auth.uid == parentIds.users"
+              ]
+            },
+            {
+              "name": "authorityRules",
+              "rules": [
+                "allow read, write: if request.auth != null && request.auth.uid == parentIds.users"
+              ]
+            },
+            {
+              "name": "automations",
+              "rules": [
+                "allow read, write: if request.auth != null && request.auth.uid == parentIds.users"
+              ]
+            },
+            {
+              "name": "testCases",
+              "rules": [
+                "allow read, write: if request.auth != null && request.auth.uid == parentIds.users"
+              ]
+            },
+            {
+              "name": "testResults",
+              "rules": [
+                "allow read, write: if request.auth != null && request.auth.uid == parentIds.users"
+              ]
+            },
+            {
+              "name": "integrations",
+              "rules": [
+                "allow read, write: if request.auth != null && request.auth.uid == parentIds.users"
+              ]
+            },
+            {
+              "name": "deployments",
+              "rules": [
+                "allow read, write: if request.auth != null && request.auth.uid == parentIds.users"
+              ]
+            },
+            {
+              "name": "activityLogs",
+              "rules": [
+                "allow read, write: if request.auth != null && request.auth.uid == parentIds.users"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "activityLogs",
+          "rules": [
+            "allow read, write: if request.auth != null && request.auth.uid == parentIds.users"
+          ]
+        }
+      ]
+    }
+  ]
+}

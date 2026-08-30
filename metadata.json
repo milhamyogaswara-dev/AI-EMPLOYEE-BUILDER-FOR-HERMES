@@ -1,0 +1,8 @@
+{
+  "name": "AI Employee Builder for Hermes",
+  "description": "Train, equip, test, and deploy personalized Hermes AI assistants and employees with structured workflows.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
