@@ -1,0 +1,4 @@
+[build.environment]
+  # Firebase web configuration is intentionally public and bundled client-side.
+  # Keep environment-variable scanning enabled while disabling heuristic matches.
+  SECRETS_SCAN_SMART_DETECTION_ENABLED = "false"
