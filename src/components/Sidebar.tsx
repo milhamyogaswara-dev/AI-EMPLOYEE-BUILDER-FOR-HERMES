@@ -20,6 +20,7 @@ import {
   Plus,
   Bot,
   X,
+  Lock,
 } from 'lucide-react';
 import { Assistant, UserProfile } from '../types';
 
@@ -82,7 +83,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'authority' as NavView, label: 'Authority Rules', icon: ShieldAlert, badge: undefined },
     { id: 'automation' as NavView, label: 'Automation', icon: Zap, badge: undefined },
     { id: 'testlab' as NavView, label: 'Test Lab', icon: FlaskConical, badge: 'MAJOR' },
-    { id: 'integrations' as NavView, label: 'Integrations', icon: Puzzle, badge: undefined },
+    { id: 'integrations' as NavView, label: 'Integrations', icon: Puzzle, badge: 'LOCKED' },
     { id: 'deploy' as NavView, label: 'Deploy Hermes', icon: Rocket, badge: undefined },
     { id: 'templates' as NavView, label: 'Templates', icon: LayoutTemplate, badge: undefined },
     { id: 'settings' as NavView, label: 'Settings', icon: Settings, badge: undefined },
@@ -228,13 +229,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <span className="flex-1 truncate tracking-wide">{item.label}</span>
               {item.badge && (
                 <span
-                  className={`text-[9px] font-mono px-1.5 py-0.5 rounded tracking-widest ${
-                    item.badge === 'MAJOR'
+                  className={`text-[9px] font-mono px-1.5 py-0.5 rounded tracking-widest flex items-center gap-1 ${
+                    item.badge === 'LOCKED'
+                      ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
+                      : item.badge === 'MAJOR'
                       ? 'bg-[#FF5F1F]/20 text-[#FF5F1F] border border-[#FF5F1F]/30'
                       : 'bg-[#181818] text-[#888] border border-white/5'
                   }`}
                 >
-                  {item.badge}
+                  {item.badge === 'LOCKED' && <Lock className="w-2.5 h-2.5 text-amber-400" />}
+                  <span>{item.badge}</span>
                 </span>
               )}
             </button>

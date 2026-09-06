@@ -82,8 +82,8 @@ export const Header: React.FC<HeaderProps> = ({
       subtitle: 'Simulate real prompts, evaluate metrics, and loop corrections into rules.',
     },
     integrations: {
-      title: 'Integrations Hub',
-      subtitle: 'Connect with Hermes Core runtime, Telegram, Slack, and cloud tools.',
+      title: 'Integrations Hub (Terkunci / Locked)',
+      subtitle: 'Fitur integrasi endpoint eksternal & webhook dinonaktifkan sementara untuk pemeliharaan sistem.',
     },
     deploy: {
       title: 'Hermes Deployment Package',

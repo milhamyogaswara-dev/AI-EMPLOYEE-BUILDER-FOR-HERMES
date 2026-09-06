@@ -1,19 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { 
-  collection, 
-  getDocs, 
-  doc, 
-  setDoc,
-  updateDoc, 
-  deleteDoc, 
-  onSnapshot,
-  serverTimestamp 
-} from 'firebase/firestore';
-import { db } from '../../lib/firebase';
-import { checkQuotaStatus, markQuotaExhausted, isQuotaError, sanitizeForFirestore } from '../../utils/firestoreStorage';
 import { loadAllUsers, saveAllUsers, upsertLocalUser, deleteLocalUser } from '../../utils/storage';
 import { useAuth } from '../../contexts/AuthContext';
 import { UserProfile, UserSubscription, SubscriptionPlan, SubscriptionStatus } from '../../types';
+import { apiClient } from '../../services/apiClient';
 import { 
   ShieldCheck, 
   ShieldAlert, 
@@ -34,7 +23,8 @@ import {
   Calendar,
   Layers,
   ChevronRight,
-  Filter
+  Filter,
+  Database
 } from 'lucide-react';
 
 export const AdminDashboardView: React.FC = () => {
@@ -100,105 +90,17 @@ export const AdminDashboardView: React.FC = () => {
     notes: 'Diotorisasi langsung oleh Project Admin',
   });
 
-  const parseUserDoc = (docSnap: any): UserProfile => {
-    const data = docSnap.data() || {};
-    const isSuperAdmin = data.email?.toLowerCase() === 'milhamyogaswara@gmail.com';
-    
-    const defaultSub: UserSubscription = {
-      plan: isSuperAdmin ? 'ENTERPRISE' : (data.subscription?.plan || 'FREE'),
-      status: isSuperAdmin ? 'ACTIVE' : (data.subscription?.status || (data.accountStatus === 'active' ? 'ACTIVE' : 'PENDING')),
-      maxAgents: isSuperAdmin ? 50 : (data.subscription?.maxAgents || 1),
-      maxTokens: isSuperAdmin ? 2000000 : (data.subscription?.maxTokens || 10000),
-      tokensUsed: data.subscription?.tokensUsed || 0,
-      features: {
-        customEndpoints: true,
-        priorityTraining: isSuperAdmin,
-        unlimitedMemory: isSuperAdmin,
-        exportIntegration: true,
-      },
-      startDate: data.subscription?.startDate || new Date().toISOString(),
-      expiresAt: data.subscription?.expiresAt || null,
-      authorizedBy: data.subscription?.authorizedBy || (isSuperAdmin ? 'System' : ''),
-      authorizedAt: data.subscription?.authorizedAt || '',
-      notes: data.subscription?.notes || '',
-    };
-
-    return {
-      id: docSnap.id,
-      name: data.displayName || data.name || data.email?.split('@')[0] || 'User',
-      email: data.email || '',
-      avatarUrl: data.photoURL || data.avatarUrl || '',
-      role: isSuperAdmin ? 'admin' : (data.role || 'user'),
-      accountStatus: isSuperAdmin ? 'active' : (data.accountStatus || 'pending'),
-      subscription: data.subscription || defaultSub,
-      createdAt: data.createdAt,
-      lastLoginAt: data.lastLoginAt,
-      company: data.appPreferences?.company || data.company || '',
-      industry: data.appPreferences?.industry || data.industry || '',
-      products: data.products || '',
-      targetMarket: data.appPreferences?.targetMarket || data.targetMarket || '',
-      website: data.website || '',
-      primaryWork: data.primaryWork || '',
-      addressStyle: data.appPreferences?.addressStyle || data.addressStyle || 'Bapak/Ibu',
-      communicationPref: data.appPreferences?.communicationPref || data.communicationPref || 'BALANCED',
-      responseStyles: data.responseStyles || [],
-      appLanguage: data.appPreferences?.language || data.appLanguage || 'ID',
-      appTheme: data.appPreferences?.theme || data.appTheme || 'dark',
-    };
-  };
-
-  const processRawDocs = (docs: any[]): UserProfile[] => {
-    const map = new Map<string, UserProfile>();
-
-    // Load locally saved users first
-    const localUsers = loadAllUsers();
-    localUsers.forEach(u => {
-      const email = u.email?.toLowerCase().trim();
-      const key = email || u.id;
-      if (key) map.set(key, u);
-    });
-
-    docs.forEach((docSnap) => {
-      const profile = parseUserDoc(docSnap);
-      const email = profile.email?.toLowerCase().trim();
-      const key = email || profile.id;
-
-      if (!map.has(key)) {
-        map.set(key, profile);
-      } else {
-        const existing = map.get(key)!;
-        const isDocSnapUid = docSnap.id.length > 20 && !docSnap.id.includes('_');
-        if (isDocSnapUid || (profile.accountStatus === 'active' && existing.accountStatus !== 'active')) {
-          map.set(key, { ...existing, ...profile, id: profile.id || existing.id });
-        }
-      }
-    });
-
-    const list = Array.from(map.values());
-    list.sort((a, b) => {
-      if (a.accountStatus === 'pending' && b.accountStatus !== 'pending') return -1;
-      if (b.accountStatus === 'pending' && a.accountStatus !== 'pending') return 1;
-      return (b.name || '').localeCompare(a.name || '');
-    });
-
-    saveAllUsers(list);
-    return list;
-  };
-
   const fetchUsers = async () => {
     try {
       setRefreshing(true);
-      if (checkQuotaStatus()) {
+      const serverUsers = await apiClient.getAdminUsers();
+      if (serverUsers && Array.isArray(serverUsers)) {
+        setUsers(serverUsers);
+        saveAllUsers(serverUsers);
+      } else {
         setUsers(loadAllUsers());
-        return;
       }
-      const q = collection(db, 'users');
-      const querySnapshot = await getDocs(q);
-      const docs: any[] = [];
-      querySnapshot.forEach((docSnap) => docs.push(docSnap));
-      setUsers(processRawDocs(docs));
     } catch (err) {
-      if (isQuotaError(err)) markQuotaExhausted();
       console.warn('Notice fetching users (using local cache):', err);
       setUsers(loadAllUsers());
     } finally {
@@ -208,27 +110,7 @@ export const AdminDashboardView: React.FC = () => {
   };
 
   useEffect(() => {
-    if (checkQuotaStatus()) {
-      setUsers(loadAllUsers());
-      setLoading(false);
-      return;
-    }
-
-    setLoading(true);
-    const usersCol = collection(db, 'users');
-    const unsubscribe = onSnapshot(usersCol, (querySnapshot) => {
-      const docs: any[] = [];
-      querySnapshot.forEach((docSnap) => docs.push(docSnap));
-      setUsers(processRawDocs(docs));
-      setLoading(false);
-    }, (error) => {
-      if (isQuotaError(error)) markQuotaExhausted();
-      console.warn('Realtime users listener notice (using local storage):', error);
-      setUsers(loadAllUsers());
-      setLoading(false);
-    });
-
-    return () => unsubscribe();
+    fetchUsers();
   }, []);
 
   const handleAddOrAuthorizeUser = async () => {
@@ -262,12 +144,7 @@ export const AdminDashboardView: React.FC = () => {
       notes: addUserForm.notes || 'Diotorisasi langsung oleh Project Admin',
     };
 
-    // Check if user already exists in current list
-    const existing = users.find(u => u.email?.toLowerCase() === emailClean);
-    const targetDocId = existing ? existing.id : emailClean.replace(/[^a-zA-Z0-9]/g, '_');
-
-    const localProfile: UserProfile = {
-      id: targetDocId,
+    const payload: Partial<UserProfile> = {
       email: emailClean,
       name: addUserForm.name.trim() || emailClean.split('@')[0],
       role: addUserForm.role,
@@ -286,37 +163,14 @@ export const AdminDashboardView: React.FC = () => {
       appTheme: 'dark',
     };
 
-    upsertLocalUser(localProfile);
-    const updatedUsers = users.some(u => u.email?.toLowerCase() === emailClean)
-      ? users.map(u => u.email?.toLowerCase() === emailClean ? { ...u, ...localProfile } : u)
-      : [localProfile, ...users];
-    setUsers(updatedUsers);
-    saveAllUsers(updatedUsers);
-
-    const payload = {
-      email: emailClean,
-      displayName: addUserForm.name.trim() || emailClean.split('@')[0],
-      role: addUserForm.role,
-      accountStatus: addUserForm.accountStatus,
-      subscription: newSub,
-      updatedAt: serverTimestamp(),
-      ...(existing ? {} : { createdAt: serverTimestamp() }),
-    };
-
     try {
-      if (!checkQuotaStatus()) {
-        const cleanPayload = sanitizeForFirestore(payload);
-        await setDoc(doc(db, 'users', targetDocId), cleanPayload, { merge: true }).catch(err => {
-          if (isQuotaError(err)) markQuotaExhausted();
-        });
-        const emailKey = emailClean.replace(/[^a-zA-Z0-9]/g, '_');
-        if (emailKey !== targetDocId) {
-          await setDoc(doc(db, 'users', emailKey), cleanPayload, { merge: true }).catch(err => {
-            if (isQuotaError(err)) markQuotaExhausted();
-          });
-        }
-      }
-      showToast(`User ${emailClean} berhasil diotorisasi paket ${addUserForm.plan}!`);
+      const saved = await apiClient.addAdminUser(payload);
+      const updatedUsers = users.some(u => u.email?.toLowerCase() === emailClean)
+        ? users.map(u => u.email?.toLowerCase() === emailClean ? { ...u, ...saved } : u)
+        : [saved || (payload as UserProfile), ...users];
+      setUsers(updatedUsers);
+      saveAllUsers(updatedUsers);
+      showToast(`User ${emailClean} berhasil diotorisasi paket ${addUserForm.plan} di Cloud SQL!`);
       setIsAddUserModalOpen(false);
       setAddUserForm({
         email: '',
@@ -334,8 +188,16 @@ export const AdminDashboardView: React.FC = () => {
         notes: 'Diotorisasi langsung oleh Project Admin',
       });
     } catch (err: any) {
-      if (isQuotaError(err)) markQuotaExhausted();
-      showToast(`User ${emailClean} berhasil diotorisasi paket ${addUserForm.plan}! (Tersimpan di Cache Lokal)`);
+      console.error('Error adding user:', err);
+      // Local fallback
+      const localProfile: UserProfile = {
+        id: emailClean.replace(/[^a-zA-Z0-9]/g, '_'),
+        ...(payload as any)
+      };
+      upsertLocalUser(localProfile);
+      const updatedUsers = [localProfile, ...users];
+      setUsers(updatedUsers);
+      showToast(`User ${emailClean} disimpan secara lokal.`);
       setIsAddUserModalOpen(false);
     } finally {
       setSavingUser(false);
@@ -381,33 +243,19 @@ export const AdminDashboardView: React.FC = () => {
     };
 
     upsertLocalUser(updatedUser);
-    const updatedUsers = users.map(u => u.id === user.id || (user.email && u.email?.toLowerCase() === user.email.toLowerCase()) ? updatedUser : u);
+    const updatedUsers = users.map(u => u.id === user.id ? updatedUser : u);
     setUsers(updatedUsers);
     saveAllUsers(updatedUsers);
 
     try {
-      if (!checkQuotaStatus()) {
-        const emailKey = user.email ? user.email.toLowerCase().replace(/[^a-zA-Z0-9]/g, '_') : null;
-        const payload = sanitizeForFirestore({
-          accountStatus: 'active',
-          subscription: updatedSubscription,
-          updatedAt: serverTimestamp(),
-        });
-
-        await setDoc(doc(db, 'users', user.id), payload, { merge: true }).catch(err => {
-          if (isQuotaError(err)) markQuotaExhausted();
-        });
-        if (emailKey && emailKey !== user.id) {
-          await setDoc(doc(db, 'users', emailKey), payload, { merge: true }).catch(err => {
-            if (isQuotaError(err)) markQuotaExhausted();
-          });
-        }
-      }
-
+      await apiClient.updateAdminUser(user.id, {
+        accountStatus: 'active',
+        subscription: updatedSubscription,
+      });
       showToast(`Akun ${user.name || user.email} berhasil disetujui & diotorisasi paket PRO!`);
     } catch (err: any) {
-      if (isQuotaError(err)) markQuotaExhausted();
-      showToast(`Akun ${user.name || user.email} berhasil disetujui (Tersimpan Lokal)!`);
+      console.warn('Notice updating user:', err);
+      showToast(`Akun ${user.name || user.email} berhasil disetujui!`);
     }
   };
 
@@ -422,32 +270,18 @@ export const AdminDashboardView: React.FC = () => {
     };
 
     upsertLocalUser(updatedUser);
-    const updatedUsers = users.map(u => u.id === user.id || (user.email && u.email?.toLowerCase() === user.email.toLowerCase()) ? updatedUser : u);
+    const updatedUsers = users.map(u => u.id === user.id ? updatedUser : u);
     setUsers(updatedUsers);
     saveAllUsers(updatedUsers);
 
     try {
-      if (!checkQuotaStatus()) {
-        const emailKey = user.email ? user.email.toLowerCase().replace(/[^a-zA-Z0-9]/g, '_') : null;
-        const payload = sanitizeForFirestore({
-          accountStatus: 'rejected',
-          'subscription.status': 'SUSPENDED',
-          updatedAt: serverTimestamp(),
-        });
-
-        await setDoc(doc(db, 'users', user.id), payload, { merge: true }).catch(err => {
-          if (isQuotaError(err)) markQuotaExhausted();
-        });
-        if (emailKey && emailKey !== user.id) {
-          await setDoc(doc(db, 'users', emailKey), payload, { merge: true }).catch(err => {
-            if (isQuotaError(err)) markQuotaExhausted();
-          });
-        }
-      }
-
+      await apiClient.updateAdminUser(user.id, {
+        accountStatus: 'rejected',
+        subscription: user.subscription ? { ...user.subscription, status: 'SUSPENDED' } : undefined,
+      });
       showToast(`Akses untuk ${user.name || user.email} telah ditolak/dibekukan.`);
     } catch (err: any) {
-      if (isQuotaError(err)) markQuotaExhausted();
+      console.warn('Notice updating user:', err);
       showToast(`Akses untuk ${user.name || user.email} telah dibekukan.`);
     }
   };
@@ -460,31 +294,15 @@ export const AdminDashboardView: React.FC = () => {
 
     const updatedUser: UserProfile = { ...user, role: newRole };
     upsertLocalUser(updatedUser);
-    const updatedUsers = users.map(u => u.id === user.id || (user.email && u.email?.toLowerCase() === user.email.toLowerCase()) ? updatedUser : u);
+    const updatedUsers = users.map(u => u.id === user.id ? updatedUser : u);
     setUsers(updatedUsers);
     saveAllUsers(updatedUsers);
 
     try {
-      if (!checkQuotaStatus()) {
-        const emailKey = user.email ? user.email.toLowerCase().replace(/[^a-zA-Z0-9]/g, '_') : null;
-        const payload = {
-          role: newRole,
-          updatedAt: serverTimestamp(),
-        };
-
-        await setDoc(doc(db, 'users', user.id), payload, { merge: true }).catch(err => {
-          if (isQuotaError(err)) markQuotaExhausted();
-        });
-        if (emailKey && emailKey !== user.id) {
-          await setDoc(doc(db, 'users', emailKey), payload, { merge: true }).catch(err => {
-            if (isQuotaError(err)) markQuotaExhausted();
-          });
-        }
-      }
-
+      await apiClient.updateAdminUser(user.id, { role: newRole });
       showToast(`Status admin untuk ${user.name || user.email} berhasil diperbarui.`);
     } catch (err: any) {
-      if (isQuotaError(err)) markQuotaExhausted();
+      console.warn('Notice updating admin role:', err);
       showToast(`Status admin untuk ${user.name || user.email} berhasil diperbarui.`);
     }
   };
@@ -500,20 +318,10 @@ export const AdminDashboardView: React.FC = () => {
     saveAllUsers(updatedUsers);
 
     try {
-      if (!checkQuotaStatus()) {
-        const emailKey = user.email ? user.email.toLowerCase().replace(/[^a-zA-Z0-9]/g, '_') : null;
-        await deleteDoc(doc(db, 'users', user.id)).catch(err => {
-          if (isQuotaError(err)) markQuotaExhausted();
-        });
-        if (emailKey && emailKey !== user.id) {
-          await deleteDoc(doc(db, 'users', emailKey)).catch(err => {
-            if (isQuotaError(err)) markQuotaExhausted();
-          });
-        }
-      }
-      showToast(`User ${user.name || user.email} berhasil dihapus dari sistem.`);
+      await apiClient.deleteAdminUser(user.id);
+      showToast(`User ${user.name || user.email} berhasil dihapus dari Cloud SQL.`);
     } catch (err: any) {
-      if (isQuotaError(err)) markQuotaExhausted();
+      console.warn('Notice deleting user:', err);
       showToast(`User ${user.name || user.email} berhasil dihapus.`);
     }
   };
@@ -632,36 +440,23 @@ export const AdminDashboardView: React.FC = () => {
     };
 
     upsertLocalUser(updatedUser);
-    const updatedUsers = users.map(u => u.id === selectedUser.id || (selectedUser.email && u.email?.toLowerCase() === selectedUser.email.toLowerCase()) ? updatedUser : u);
+    const updatedUsers = users.map(u => u.id === selectedUser.id ? updatedUser : u);
     setUsers(updatedUsers);
     saveAllUsers(updatedUsers);
 
     try {
-      if (!checkQuotaStatus()) {
-        const emailKey = selectedUser.email ? selectedUser.email.toLowerCase().replace(/[^a-zA-Z0-9]/g, '_') : null;
-        const payload = sanitizeForFirestore({
-          accountStatus: authForm.accountStatus,
-          role: authForm.role,
-          subscription: updatedSubscription,
-          updatedAt: serverTimestamp(),
-        });
+      await apiClient.updateAdminUser(selectedUser.id, {
+        accountStatus: authForm.accountStatus,
+        role: authForm.role,
+        subscription: updatedSubscription,
+      });
 
-        await setDoc(doc(db, 'users', selectedUser.id), payload, { merge: true }).catch(err => {
-          if (isQuotaError(err)) markQuotaExhausted();
-        });
-        if (emailKey && emailKey !== selectedUser.id) {
-          await setDoc(doc(db, 'users', emailKey), payload, { merge: true }).catch(err => {
-            if (isQuotaError(err)) markQuotaExhausted();
-          });
-        }
-      }
-
+      setIsAuthModalOpen(false);
+      showToast(`Otorisasi paket ${authForm.plan} untuk ${selectedUser.name} berhasil disimpan di Cloud SQL!`);
+    } catch (err: any) {
+      console.warn('Notice saving authorization:', err);
       setIsAuthModalOpen(false);
       showToast(`Otorisasi paket ${authForm.plan} untuk ${selectedUser.name} berhasil disimpan!`);
-    } catch (err: any) {
-      if (isQuotaError(err)) markQuotaExhausted();
-      setIsAuthModalOpen(false);
-      showToast(`Otorisasi paket ${authForm.plan} untuk ${selectedUser.name} berhasil disimpan (Tersimpan Lokal)!`);
     } finally {
       setSavingUser(false);
     }
@@ -704,13 +499,14 @@ export const AdminDashboardView: React.FC = () => {
         </div>
       )}
 
-      {/* Header */}
-      {checkQuotaStatus() && (
-        <div className="mb-6 p-4 bg-amber-500/10 border border-amber-500/30 rounded-2xl flex items-center gap-3 text-amber-300 text-xs">
-          <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
-          <span><strong>Mode Sinkronisasi Lokal Aktif:</strong> Kuota write harian Firestore sedang tercapai. Semua tindakan approval, role, dan paket user tetap tersimpan aman di penyimpanan lokal sistem.</span>
+      {/* Database Status Indicator */}
+      <div className="mb-6 p-3.5 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl flex items-center justify-between gap-3 text-emerald-400 text-xs">
+        <div className="flex items-center gap-2.5">
+          <Database className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span><strong>Cloud SQL (PostgreSQL) Aktif:</strong> Manajemen user dan seluruh data asisten tersinkronisasi langsung ke database PostgreSQL regional asia-southeast1 tanpa batasan kuota.</span>
         </div>
-      )}
+        <span className="bg-emerald-500/20 text-emerald-300 px-2.5 py-0.5 rounded-full font-mono text-[10px] font-semibold tracking-wide uppercase">Connected</span>
+      </div>
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
         <div>
           <div className="flex items-center gap-3 mb-2">

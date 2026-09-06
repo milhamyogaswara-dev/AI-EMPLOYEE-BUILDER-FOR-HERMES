@@ -1,5 +1,3 @@
-import { db } from '../lib/firebase';
-import { collection, doc, getDocs, setDoc, writeBatch, serverTimestamp } from 'firebase/firestore';
 import {
   Assistant,
   AutomationItem,
@@ -9,6 +7,7 @@ import {
   ToolItem,
   TrainingRule,
   ActivityLog,
+  UserProfile,
 } from '../types';
 import {
   loadAssistants,
@@ -29,539 +28,354 @@ import {
   saveActivityLogs,
   saveUserProfile,
 } from './storage';
+import { apiClient } from '../services/apiClient';
 
-// In-memory debounce timers and dirty check hashes to avoid write quota spam
+// In-memory debounce timers and dirty check hashes
 const debounceTimers: Record<string, NodeJS.Timeout> = {};
 const lastSavedHashes: Record<string, string> = {};
 
-const QUOTA_KEY = 'hermes_fs_quota_exhausted_timestamp';
-
-export const checkQuotaStatus = (): boolean => {
-  try {
-    const timestampStr = localStorage.getItem(QUOTA_KEY);
-    if (!timestampStr) return false;
-    const timestamp = parseInt(timestampStr, 10);
-    // Cache quota lockout for 4 hours before retrying
-    if (Date.now() - timestamp < 4 * 60 * 60 * 1000) {
-      return true;
-    }
-    // Expired, clear it
-    localStorage.removeItem(QUOTA_KEY);
-    return false;
-  } catch {
-    return false;
-  }
-};
-
-export const markQuotaExhausted = () => {
-  try {
-    localStorage.setItem(QUOTA_KEY, Date.now().toString());
-    console.warn('[Hermes Studio] Firestore daily write quota limit reached. Gracefully utilizing local storage mode.');
-  } catch {}
-};
-
-export const isQuotaError = (err: any): boolean => {
-  if (!err) return false;
-  const msg = (err.message || '').toLowerCase();
-  const code = (err.code || '').toLowerCase();
-  return (
-    code === 'resource-exhausted' ||
-    msg.includes('quota') ||
-    msg.includes('resource-exhausted') ||
-    msg.includes('write stream exhausted') ||
-    msg.includes('quota limit exceeded')
-  );
-};
+export const checkQuotaStatus = (): boolean => false;
+export const markQuotaExhausted = () => {};
+export const isQuotaError = (_err: any): boolean => false;
 
 export function sanitizeForFirestore<T>(data: T): T {
-  if (data === undefined) {
-    return null as any;
-  }
-  if (data === null || typeof data !== 'object') {
-    return data;
-  }
-  if (data instanceof Date) {
-    return data.toISOString() as any;
-  }
-  if (Array.isArray(data)) {
-    return data.map(item => sanitizeForFirestore(item)) as any;
-  }
-  // Check if it's a Firestore FieldValue (e.g. serverTimestamp())
-  if ((data as any)?._methodName || (data as any)?.constructor?.name === 'FieldValue') {
-    return data;
-  }
-  const result: Record<string, any> = {};
-  for (const [key, value] of Object.entries(data)) {
-    if (value !== undefined) {
-      result[key] = sanitizeForFirestore(value);
-    }
-  }
-  return result as T;
+  return data;
 }
 
+// 1. ASSISTANTS
 export const fsLoadAssistants = async (uid: string): Promise<Assistant[]> => {
-  if (checkQuotaStatus()) {
-    const data = loadAssistants();
-    lastSavedHashes[`assts_${uid}`] = JSON.stringify(data.map(a => ({ id: a.id, name: a.name, role: a.role, mission: a.mission, status: a.status })));
-    return data;
-  }
   try {
-    const snapshot = await getDocs(collection(db, `users/${uid}/assistants`));
-    if (!snapshot.empty) {
-      const data = snapshot.docs.map(d => d.data() as Assistant);
-      saveAssistants(data);
-      lastSavedHashes[`assts_${uid}`] = JSON.stringify(data.map(a => ({ id: a.id, name: a.name, role: a.role, mission: a.mission, status: a.status })));
-      return data;
+    const list = await apiClient.getAssistants();
+    if (list && list.length > 0) {
+      saveAssistants(list);
+      return list;
     }
   } catch (err) {
-    if (isQuotaError(err)) markQuotaExhausted();
-    console.warn('Firestore loadAssistants fallback to local storage:', err);
+    console.warn('API getAssistants fallback to local storage:', err);
   }
-  const data = loadAssistants();
-  lastSavedHashes[`assts_${uid}`] = JSON.stringify(data.map(a => ({ id: a.id, name: a.name, role: a.role, mission: a.mission, status: a.status })));
-  return data;
+  return loadAssistants();
 };
 
-export const fsSaveAssistants = (uid: string, assistants: Assistant[]) => {
+export const fsSaveAssistants = async (uid: string, assistants: Assistant[]) => {
+  if (!assistants || assistants.length === 0) return;
   saveAssistants(assistants);
-  const hash = JSON.stringify(assistants.map(a => ({ id: a.id, name: a.name, role: a.role, mission: a.mission, status: a.status })));
-  if (lastSavedHashes[`assts_${uid}`] === hash) return;
 
-  if (checkQuotaStatus()) {
-    lastSavedHashes[`assts_${uid}`] = hash;
-    return;
-  }
+  const hashKey = `assts_${uid}`;
+  const currentHash = JSON.stringify(assistants.map(a => ({ id: a.id, name: a.name, status: a.status, role: a.role })));
+  if (lastSavedHashes[hashKey] === currentHash) return;
 
-  if (debounceTimers[`assts_${uid}`]) clearTimeout(debounceTimers[`assts_${uid}`]);
-  debounceTimers[`assts_${uid}`] = setTimeout(async () => {
-    lastSavedHashes[`assts_${uid}`] = hash;
-    if (checkQuotaStatus()) return;
+  if (debounceTimers[hashKey]) clearTimeout(debounceTimers[hashKey]);
+
+  debounceTimers[hashKey] = setTimeout(async () => {
     try {
-      const batch = writeBatch(db);
-      for (const asst of assistants) {
-        const ref = doc(db, `users/${uid}/assistants`, asst.id);
-        batch.set(ref, asst, { merge: true });
+      lastSavedHashes[hashKey] = currentHash;
+      for (const assistant of assistants) {
+        await apiClient.saveAssistant(assistant);
       }
-      await batch.commit();
     } catch (err) {
-      if (isQuotaError(err)) markQuotaExhausted();
-      console.warn('Firestore fsSaveAssistants fallback (local storage updated):', err);
+      console.warn('API saveAssistant notice:', err);
     }
-  }, 2000);
+  }, 1000);
 };
 
+// 2. TRAINING RULES
 export const fsLoadTrainingRules = async (uid: string): Promise<TrainingRule[]> => {
-  if (checkQuotaStatus()) {
-    const data = loadTrainingRules();
-    lastSavedHashes[`rules_${uid}`] = JSON.stringify(data);
-    return data;
-  }
   try {
-    const snapshot = await getDocs(collection(db, `users/${uid}/trainingRules`));
-    if (!snapshot.empty) {
-      const data = snapshot.docs.map(d => d.data() as TrainingRule);
-      saveTrainingRules(data);
-      lastSavedHashes[`rules_${uid}`] = JSON.stringify(data);
-      return data;
+    const list = await apiClient.getTrainingRules();
+    if (list && list.length > 0) {
+      saveTrainingRules(list);
+      return list;
     }
   } catch (err) {
-    if (isQuotaError(err)) markQuotaExhausted();
-    console.warn('Firestore loadTrainingRules fallback to local storage:', err);
+    console.warn('API getTrainingRules fallback to local storage:', err);
   }
-  const data = loadTrainingRules();
-  lastSavedHashes[`rules_${uid}`] = JSON.stringify(data);
-  return data;
+  return loadTrainingRules();
 };
 
-export const fsSaveTrainingRules = (uid: string, rules: TrainingRule[]) => {
+export const fsSaveTrainingRules = async (uid: string, rules: TrainingRule[]) => {
   saveTrainingRules(rules);
-  const hash = JSON.stringify(rules);
-  if (lastSavedHashes[`rules_${uid}`] === hash) return;
+  const hashKey = `rules_${uid}`;
+  const currentHash = JSON.stringify(rules.map(r => ({ id: r.id, title: r.title, rule: r.rule, type: r.type })));
+  if (lastSavedHashes[hashKey] === currentHash) return;
 
-  if (checkQuotaStatus()) {
-    lastSavedHashes[`rules_${uid}`] = hash;
-    return;
-  }
+  if (debounceTimers[hashKey]) clearTimeout(debounceTimers[hashKey]);
 
-  if (debounceTimers[`rules_${uid}`]) clearTimeout(debounceTimers[`rules_${uid}`]);
-  debounceTimers[`rules_${uid}`] = setTimeout(async () => {
-    lastSavedHashes[`rules_${uid}`] = hash;
-    if (checkQuotaStatus()) return;
+  debounceTimers[hashKey] = setTimeout(async () => {
     try {
-      const batch = writeBatch(db);
+      lastSavedHashes[hashKey] = currentHash;
       for (const rule of rules) {
-        const ref = doc(db, `users/${uid}/trainingRules`, rule.id);
-        batch.set(ref, rule, { merge: true });
+        await apiClient.saveTrainingRule(rule);
       }
-      await batch.commit();
     } catch (err) {
-      if (isQuotaError(err)) markQuotaExhausted();
-      console.warn('Firestore fsSaveTrainingRules fallback (local storage updated):', err);
+      console.warn('API saveTrainingRule notice:', err);
     }
-  }, 2000);
+  }, 1000);
 };
 
+// 3. SKILLS
 export const fsLoadSkills = async (uid: string): Promise<Skill[]> => {
-  if (checkQuotaStatus()) {
-    const data = loadSkills();
-    lastSavedHashes[`skills_${uid}`] = JSON.stringify(data);
-    return data;
-  }
   try {
-    const snapshot = await getDocs(collection(db, `users/${uid}/skills`));
-    if (!snapshot.empty) {
-      const data = snapshot.docs.map(d => d.data() as Skill);
-      saveSkills(data);
-      lastSavedHashes[`skills_${uid}`] = JSON.stringify(data);
-      return data;
+    const list = await apiClient.getSkills();
+    if (list && list.length > 0) {
+      saveSkills(list);
+      return list;
     }
   } catch (err) {
-    if (isQuotaError(err)) markQuotaExhausted();
-    console.warn('Firestore loadSkills fallback to local storage:', err);
+    console.warn('API getSkills fallback to local storage:', err);
   }
-  const data = loadSkills();
-  lastSavedHashes[`skills_${uid}`] = JSON.stringify(data);
-  return data;
+  return loadSkills();
 };
 
-export const fsSaveSkills = (uid: string, skills: Skill[]) => {
+export const fsSaveSkills = async (uid: string, skills: Skill[]) => {
   saveSkills(skills);
-  const hash = JSON.stringify(skills);
-  if (lastSavedHashes[`skills_${uid}`] === hash) return;
+  const hashKey = `skills_${uid}`;
+  const currentHash = JSON.stringify(skills.map(s => ({ id: s.id, name: s.name, status: s.status, version: s.version })));
+  if (lastSavedHashes[hashKey] === currentHash) return;
 
-  if (checkQuotaStatus()) {
-    lastSavedHashes[`skills_${uid}`] = hash;
-    return;
-  }
+  if (debounceTimers[hashKey]) clearTimeout(debounceTimers[hashKey]);
 
-  if (debounceTimers[`skills_${uid}`]) clearTimeout(debounceTimers[`skills_${uid}`]);
-  debounceTimers[`skills_${uid}`] = setTimeout(async () => {
-    lastSavedHashes[`skills_${uid}`] = hash;
-    if (checkQuotaStatus()) return;
+  debounceTimers[hashKey] = setTimeout(async () => {
     try {
-      const batch = writeBatch(db);
+      lastSavedHashes[hashKey] = currentHash;
       for (const skill of skills) {
-        const ref = doc(db, `users/${uid}/skills`, skill.id);
-        batch.set(ref, skill, { merge: true });
+        await apiClient.saveSkill(skill);
       }
-      await batch.commit();
     } catch (err) {
-      if (isQuotaError(err)) markQuotaExhausted();
-      console.warn('Firestore fsSaveSkills fallback (local storage updated):', err);
+      console.warn('API saveSkill notice:', err);
     }
-  }, 2000);
+  }, 1000);
 };
 
+// 4. SOPS
 export const fsLoadSOPs = async (uid: string): Promise<SOP[]> => {
-  if (checkQuotaStatus()) {
-    const data = loadSOPs();
-    lastSavedHashes[`sops_${uid}`] = JSON.stringify(data);
-    return data;
-  }
   try {
-    const snapshot = await getDocs(collection(db, `users/${uid}/sops`));
-    if (!snapshot.empty) {
-      const data = snapshot.docs.map(d => d.data() as SOP);
-      saveSOPs(data);
-      lastSavedHashes[`sops_${uid}`] = JSON.stringify(data);
-      return data;
+    const list = await apiClient.getSops();
+    if (list && list.length > 0) {
+      saveSOPs(list);
+      return list;
     }
   } catch (err) {
-    if (isQuotaError(err)) markQuotaExhausted();
-    console.warn('Firestore loadSOPs fallback to local storage:', err);
+    console.warn('API getSops fallback to local storage:', err);
   }
-  const data = loadSOPs();
-  lastSavedHashes[`sops_${uid}`] = JSON.stringify(data);
-  return data;
+  return loadSOPs();
 };
 
-export const fsSaveSOPs = (uid: string, sops: SOP[]) => {
+export const fsSaveSOPs = async (uid: string, sops: SOP[]) => {
   saveSOPs(sops);
-  const hash = JSON.stringify(sops);
-  if (lastSavedHashes[`sops_${uid}`] === hash) return;
+  const hashKey = `sops_${uid}`;
+  const currentHash = JSON.stringify(sops.map(s => ({ id: s.id, name: s.name, purpose: s.purpose })));
+  if (lastSavedHashes[hashKey] === currentHash) return;
 
-  if (checkQuotaStatus()) {
-    lastSavedHashes[`sops_${uid}`] = hash;
-    return;
-  }
+  if (debounceTimers[hashKey]) clearTimeout(debounceTimers[hashKey]);
 
-  if (debounceTimers[`sops_${uid}`]) clearTimeout(debounceTimers[`sops_${uid}`]);
-  debounceTimers[`sops_${uid}`] = setTimeout(async () => {
-    lastSavedHashes[`sops_${uid}`] = hash;
-    if (checkQuotaStatus()) return;
+  debounceTimers[hashKey] = setTimeout(async () => {
     try {
-      const batch = writeBatch(db);
+      lastSavedHashes[hashKey] = currentHash;
       for (const sop of sops) {
-        const ref = doc(db, `users/${uid}/sops`, sop.id);
-        batch.set(ref, sop, { merge: true });
+        await apiClient.saveSop(sop);
       }
-      await batch.commit();
     } catch (err) {
-      if (isQuotaError(err)) markQuotaExhausted();
-      console.warn('Firestore fsSaveSOPs fallback (local storage updated):', err);
+      console.warn('API saveSop notice:', err);
     }
-  }, 2000);
+  }, 1000);
 };
 
+// 5. MEMORIES
 export const fsLoadMemories = async (uid: string): Promise<Memory[]> => {
-  if (checkQuotaStatus()) {
-    const data = loadMemories();
-    lastSavedHashes[`memories_${uid}`] = JSON.stringify(data);
-    return data;
-  }
   try {
-    const snapshot = await getDocs(collection(db, `users/${uid}/memories`));
-    if (!snapshot.empty) {
-      const data = snapshot.docs.map(d => d.data() as Memory);
-      saveMemories(data);
-      lastSavedHashes[`memories_${uid}`] = JSON.stringify(data);
-      return data;
+    const list = await apiClient.getMemories();
+    if (list && list.length > 0) {
+      saveMemories(list);
+      return list;
     }
   } catch (err) {
-    if (isQuotaError(err)) markQuotaExhausted();
-    console.warn('Firestore loadMemories fallback to local storage:', err);
+    console.warn('API getMemories fallback to local storage:', err);
   }
-  const data = loadMemories();
-  lastSavedHashes[`memories_${uid}`] = JSON.stringify(data);
-  return data;
+  return loadMemories();
 };
 
-export const fsSaveMemories = (uid: string, memories: Memory[]) => {
+export const fsSaveMemories = async (uid: string, memories: Memory[]) => {
   saveMemories(memories);
-  const hash = JSON.stringify(memories);
-  if (lastSavedHashes[`memories_${uid}`] === hash) return;
+  const hashKey = `memories_${uid}`;
+  const currentHash = JSON.stringify(memories.map(m => ({ id: m.id, title: m.title, category: m.category })));
+  if (lastSavedHashes[hashKey] === currentHash) return;
 
-  if (checkQuotaStatus()) {
-    lastSavedHashes[`memories_${uid}`] = hash;
-    return;
-  }
+  if (debounceTimers[hashKey]) clearTimeout(debounceTimers[hashKey]);
 
-  if (debounceTimers[`memories_${uid}`]) clearTimeout(debounceTimers[`memories_${uid}`]);
-  debounceTimers[`memories_${uid}`] = setTimeout(async () => {
-    lastSavedHashes[`memories_${uid}`] = hash;
-    if (checkQuotaStatus()) return;
+  debounceTimers[hashKey] = setTimeout(async () => {
     try {
-      const batch = writeBatch(db);
+      lastSavedHashes[hashKey] = currentHash;
       for (const memory of memories) {
-        const ref = doc(db, `users/${uid}/memories`, memory.id);
-        batch.set(ref, memory, { merge: true });
+        await apiClient.saveMemory(memory);
       }
-      await batch.commit();
     } catch (err) {
-      if (isQuotaError(err)) markQuotaExhausted();
-      console.warn('Firestore fsSaveMemories fallback (local storage updated):', err);
+      console.warn('API saveMemory notice:', err);
     }
-  }, 2000);
+  }, 1000);
 };
 
+// 6. AUTOMATIONS
 export const fsLoadAutomations = async (uid: string): Promise<AutomationItem[]> => {
-  if (checkQuotaStatus()) {
-    const data = loadAutomations();
-    lastSavedHashes[`automations_${uid}`] = JSON.stringify(data);
-    return data;
-  }
   try {
-    const snapshot = await getDocs(collection(db, `users/${uid}/automations`));
-    if (!snapshot.empty) {
-      const data = snapshot.docs.map(d => d.data() as AutomationItem);
-      saveAutomations(data);
-      lastSavedHashes[`automations_${uid}`] = JSON.stringify(data);
-      return data;
+    const list = await apiClient.getAutomations();
+    if (list && list.length > 0) {
+      saveAutomations(list);
+      return list;
     }
   } catch (err) {
-    if (isQuotaError(err)) markQuotaExhausted();
-    console.warn('Firestore loadAutomations fallback to local storage:', err);
+    console.warn('API getAutomations fallback to local storage:', err);
   }
-  const data = loadAutomations();
-  lastSavedHashes[`automations_${uid}`] = JSON.stringify(data);
-  return data;
+  return loadAutomations();
 };
 
-export const fsSaveAutomations = (uid: string, automations: AutomationItem[]) => {
+export const fsSaveAutomations = async (uid: string, automations: AutomationItem[]) => {
   saveAutomations(automations);
-  const hash = JSON.stringify(automations);
-  if (lastSavedHashes[`automations_${uid}`] === hash) return;
+  const hashKey = `automations_${uid}`;
+  const currentHash = JSON.stringify(automations.map(a => ({ id: a.id, name: a.name, status: a.status })));
+  if (lastSavedHashes[hashKey] === currentHash) return;
 
-  if (checkQuotaStatus()) {
-    lastSavedHashes[`automations_${uid}`] = hash;
-    return;
-  }
+  if (debounceTimers[hashKey]) clearTimeout(debounceTimers[hashKey]);
 
-  if (debounceTimers[`automations_${uid}`]) clearTimeout(debounceTimers[`automations_${uid}`]);
-  debounceTimers[`automations_${uid}`] = setTimeout(async () => {
-    lastSavedHashes[`automations_${uid}`] = hash;
-    if (checkQuotaStatus()) return;
+  debounceTimers[hashKey] = setTimeout(async () => {
     try {
-      const batch = writeBatch(db);
+      lastSavedHashes[hashKey] = currentHash;
       for (const auto of automations) {
-        const ref = doc(db, `users/${uid}/automations`, auto.id);
-        batch.set(ref, auto, { merge: true });
+        await apiClient.saveAutomation(auto);
       }
-      await batch.commit();
     } catch (err) {
-      if (isQuotaError(err)) markQuotaExhausted();
-      console.warn('Firestore fsSaveAutomations fallback (local storage updated):', err);
+      console.warn('API saveAutomation notice:', err);
     }
-  }, 2000);
+  }, 1000);
 };
 
+// 7. TOOLS
 export const fsLoadTools = async (uid: string): Promise<ToolItem[]> => {
-  if (checkQuotaStatus()) {
-    const data = loadTools();
-    lastSavedHashes[`tools_${uid}`] = JSON.stringify(data);
-    return data;
-  }
   try {
-    const snapshot = await getDocs(collection(db, `users/${uid}/tools`));
-    if (!snapshot.empty) {
-      const data = snapshot.docs.map(d => d.data() as ToolItem);
-      saveTools(data);
-      lastSavedHashes[`tools_${uid}`] = JSON.stringify(data);
-      return data;
+    const list = await apiClient.getToolsConfigs();
+    if (list && list.length > 0) {
+      const localTools = loadTools();
+      const merged = localTools.map(lt => {
+        const found = list.find((c: any) => c.toolKey === lt.key || c.toolKey === lt.id);
+        if (found) {
+          return {
+            ...lt,
+            status: found.status as any,
+            config: found.config || lt.config,
+          };
+        }
+        return lt;
+      });
+      saveTools(merged);
+      return merged;
     }
   } catch (err) {
-    if (isQuotaError(err)) markQuotaExhausted();
-    console.warn('Firestore loadTools fallback to local storage:', err);
+    console.warn('API getToolsConfigs fallback to local storage:', err);
   }
-  const data = loadTools();
-  lastSavedHashes[`tools_${uid}`] = JSON.stringify(data);
-  return data;
+  return loadTools();
 };
 
-export const fsSaveTools = (uid: string, tools: ToolItem[]) => {
+export const fsSaveTools = async (uid: string, tools: ToolItem[]) => {
   saveTools(tools);
-  const hash = JSON.stringify(tools);
-  if (lastSavedHashes[`tools_${uid}`] === hash) return;
+  const hashKey = `tools_${uid}`;
+  const currentHash = JSON.stringify(tools.map(t => ({ id: t.id, status: t.status })));
+  if (lastSavedHashes[hashKey] === currentHash) return;
 
-  if (checkQuotaStatus()) {
-    lastSavedHashes[`tools_${uid}`] = hash;
-    return;
-  }
+  if (debounceTimers[hashKey]) clearTimeout(debounceTimers[hashKey]);
 
-  if (debounceTimers[`tools_${uid}`]) clearTimeout(debounceTimers[`tools_${uid}`]);
-  debounceTimers[`tools_${uid}`] = setTimeout(async () => {
-    lastSavedHashes[`tools_${uid}`] = hash;
-    if (checkQuotaStatus()) return;
+  debounceTimers[hashKey] = setTimeout(async () => {
     try {
-      const batch = writeBatch(db);
+      lastSavedHashes[hashKey] = currentHash;
       for (const tool of tools) {
-        const ref = doc(db, `users/${uid}/tools`, tool.key);
-        batch.set(ref, tool, { merge: true });
+        await apiClient.saveToolConfig(tool.key || tool.id, tool.status, tool.config);
       }
-      await batch.commit();
     } catch (err) {
-      if (isQuotaError(err)) markQuotaExhausted();
-      console.warn('Firestore fsSaveTools fallback (local storage updated):', err);
+      console.warn('API saveToolConfig notice:', err);
     }
-  }, 2000);
+  }, 1000);
 };
 
+// 8. ACTIVITY LOGS
 export const fsLoadActivityLogs = async (uid: string): Promise<ActivityLog[]> => {
-  if (checkQuotaStatus()) {
-    const logs = loadActivityLogs();
-    lastSavedHashes[`logs_${uid}`] = JSON.stringify(logs.slice(0, 20));
-    return logs;
-  }
   try {
-    const snapshot = await getDocs(collection(db, `users/${uid}/activityLogs`));
-    if (!snapshot.empty) {
-      const logs = snapshot.docs.map(d => d.data() as ActivityLog);
-      const sorted = logs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-      saveActivityLogs(sorted);
-      lastSavedHashes[`logs_${uid}`] = JSON.stringify(sorted.slice(0, 20));
-      return sorted;
+    const list = await apiClient.getActivityLogs();
+    if (list && list.length > 0) {
+      const mapped: ActivityLog[] = list.map(item => ({
+        id: item.id,
+        text: item.text,
+        timestamp: typeof item.timestamp === 'string' ? item.timestamp : new Date(item.timestamp).toISOString(),
+        type: item.type as any,
+      }));
+      saveActivityLogs(mapped);
+      return mapped;
     }
   } catch (err) {
-    if (isQuotaError(err)) markQuotaExhausted();
-    console.warn('Firestore loadActivityLogs fallback to local storage:', err);
+    console.warn('API getActivityLogs fallback to local storage:', err);
   }
-  const logs = loadActivityLogs();
-  lastSavedHashes[`logs_${uid}`] = JSON.stringify(logs.slice(0, 20));
-  return logs;
+  return loadActivityLogs();
 };
 
-export const fsSaveActivityLogs = (uid: string, logs: ActivityLog[]) => {
+export const fsSaveActivityLogs = async (uid: string, logs: ActivityLog[]) => {
   saveActivityLogs(logs);
-  const hash = JSON.stringify(logs.slice(0, 20));
-  if (lastSavedHashes[`logs_${uid}`] === hash) return;
+  const hashKey = `logs_${uid}`;
+  const currentHash = JSON.stringify(logs.slice(0, 10).map(l => l.id));
+  if (lastSavedHashes[hashKey] === currentHash) return;
 
-  if (checkQuotaStatus()) {
-    lastSavedHashes[`logs_${uid}`] = hash;
-    return;
-  }
+  if (debounceTimers[hashKey]) clearTimeout(debounceTimers[hashKey]);
 
-  if (debounceTimers[`logs_${uid}`]) clearTimeout(debounceTimers[`logs_${uid}`]);
-  debounceTimers[`logs_${uid}`] = setTimeout(async () => {
-    lastSavedHashes[`logs_${uid}`] = hash;
-    if (checkQuotaStatus()) return;
+  debounceTimers[hashKey] = setTimeout(async () => {
     try {
-      const batch = writeBatch(db);
-      for (const log of logs.slice(0, 30)) {
-        const ref = doc(db, `users/${uid}/activityLogs`, log.id);
-        batch.set(ref, log, { merge: true });
+      lastSavedHashes[hashKey] = currentHash;
+      // Save top newest logs
+      for (const log of logs.slice(0, 5)) {
+        await apiClient.addActivityLog({
+          id: log.id,
+          text: log.text,
+          type: log.type,
+          timestamp: new Date(log.timestamp),
+        });
       }
-      await batch.commit();
     } catch (err) {
-      if (isQuotaError(err)) markQuotaExhausted();
-      console.warn('Firestore fsSaveActivityLogs fallback (local storage updated):', err);
+      console.warn('API addActivityLog notice:', err);
     }
-  }, 3000);
+  }, 1000);
 };
 
-export const fsSaveUserProfilePreferences = async (uid: string, profile: any) => {
-  if (!profile) return;
+// 9. USER PROFILE PREFERENCES
+export const fsSaveUserProfilePreferences = async (uid: string, profile: UserProfile) => {
   saveUserProfile(profile);
+  const hashKey = `pref_${uid}`;
+  const currentHash = JSON.stringify({
+    company: profile.company,
+    industry: profile.industry,
+    targetMarket: profile.targetMarket,
+    appTheme: profile.appTheme,
+    appLanguage: profile.appLanguage,
+    addressStyle: profile.addressStyle,
+    communicationPref: profile.communicationPref,
+  });
 
-  const preferencesPayload = {
-    addressStyle: profile.addressStyle || '',
-    company: profile.company || '',
-    industry: profile.industry || '',
-    targetMarket: profile.targetMarket || '',
-    communicationPref: profile.communicationPref || 'BALANCED',
-    theme: profile.appTheme || 'dark',
-    language: profile.appLanguage || 'ID',
-    products: profile.products || '',
-    website: profile.website || '',
-    primaryWork: profile.primaryWork || '',
-    responseStyles: profile.responseStyles || [],
-    displayName: profile.name || '',
-  };
+  if (lastSavedHashes[hashKey] === currentHash) return;
 
-  const hash = JSON.stringify(preferencesPayload);
-  if (lastSavedHashes[`pref_${uid}`] === hash) return;
+  if (debounceTimers[hashKey]) clearTimeout(debounceTimers[hashKey]);
 
-  if (checkQuotaStatus()) {
-    lastSavedHashes[`pref_${uid}`] = hash;
-    return;
-  }
-
-  if (debounceTimers[`pref_${uid}`]) clearTimeout(debounceTimers[`pref_${uid}`]);
-  debounceTimers[`pref_${uid}`] = setTimeout(async () => {
-    lastSavedHashes[`pref_${uid}`] = hash;
-    if (checkQuotaStatus()) return;
+  debounceTimers[hashKey] = setTimeout(async () => {
     try {
-      const ref = doc(db, `users/${uid}`);
-      await setDoc(ref, {
-        appPreferences: {
-          addressStyle: preferencesPayload.addressStyle,
-          company: preferencesPayload.company,
-          industry: preferencesPayload.industry,
-          targetMarket: preferencesPayload.targetMarket,
-          communicationPref: preferencesPayload.communicationPref,
-          theme: preferencesPayload.theme,
-          language: preferencesPayload.language,
-        },
-        products: preferencesPayload.products,
-        website: preferencesPayload.website,
-        primaryWork: preferencesPayload.primaryWork,
-        responseStyles: preferencesPayload.responseStyles,
-        displayName: preferencesPayload.displayName,
-        updatedAt: serverTimestamp(),
-      }, { merge: true });
+      lastSavedHashes[hashKey] = currentHash;
+      await apiClient.updateUserProfile({
+        company: profile.company,
+        industry: profile.industry,
+        targetMarket: profile.targetMarket,
+        appTheme: profile.appTheme,
+        appLanguage: profile.appLanguage,
+        addressStyle: profile.addressStyle,
+        communicationPref: profile.communicationPref,
+        products: profile.products,
+        website: profile.website,
+        primaryWork: profile.primaryWork,
+        responseStyles: profile.responseStyles,
+      });
     } catch (err) {
-      if (isQuotaError(err)) markQuotaExhausted();
-      console.warn('Firestore fsSaveUserProfilePreferences fallback (local storage updated):', err);
+      console.warn('API updateUserProfile notice:', err);
     }
-  }, 2500);
+  }, 1000);
 };
-

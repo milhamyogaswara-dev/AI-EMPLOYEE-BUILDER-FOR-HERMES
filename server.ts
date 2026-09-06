@@ -3,6 +3,41 @@ import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, Type } from '@google/genai';
 import dotenv from 'dotenv';
+import { requireAuth, AuthRequest } from './src/middleware/auth.ts';
+import { 
+  getOrCreateUser, 
+  getAllUsers, 
+  getUserByIdOrUid, 
+  updateUserProfile, 
+  adminUpsertUser, 
+  deleteUserByUid 
+} from './src/db/users.ts';
+import {
+  getAssistantsByUserId,
+  upsertAssistant,
+  deleteAssistant,
+  getTrainingRules,
+  upsertTrainingRule,
+  deleteTrainingRule,
+  getSkills,
+  upsertSkill,
+  deleteSkill,
+  getSops,
+  upsertSop,
+  deleteSop,
+  getMemories,
+  upsertMemory,
+  deleteMemory,
+  getAutomations,
+  upsertAutomation,
+  deleteAutomation,
+  getTestCases,
+  upsertTestCase,
+  getActivityLogs,
+  insertActivityLog,
+  getToolsConfigs,
+  upsertToolConfig
+} from './src/db/dataService.ts';
 
 dotenv.config();
 
@@ -629,6 +664,483 @@ Return JSON:
     } catch (err: any) {
       console.error('Hermes connection test error:', err);
       res.status(500).json({ error: err.message || 'Internal server error' });
+    }
+  });
+
+  // ==========================================
+  // Cloud SQL Database & User Management APIs
+  // ==========================================
+
+  // 1. Sync / Create Current User Profile on Login
+  app.post('/api/user/sync', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const uid = req.user?.uid;
+      const email = req.user?.email || '';
+      const name = (req.body?.name || req.user?.name || email.split('@')[0] || 'User');
+      const avatarUrl = req.body?.avatarUrl || req.user?.picture || '';
+
+      if (!uid) {
+        return res.status(401).json({ error: 'Missing UID' });
+      }
+
+      const user = await getOrCreateUser(uid, email, name, avatarUrl);
+      res.json({ success: true, user });
+    } catch (error: any) {
+      console.error('User sync API error:', error);
+      res.status(500).json({ error: error.message || 'Failed to sync user' });
+    }
+  });
+
+  // 2. Get Current Logged In User Profile
+  app.get('/api/user/profile', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const uid = req.user?.uid;
+      if (!uid) return res.status(401).json({ error: 'Missing UID' });
+
+      let user = await getUserByIdOrUid(uid);
+      if (!user && req.user?.email) {
+        user = await getOrCreateUser(uid, req.user.email, req.user.name, req.user.picture);
+      }
+      res.json({ success: true, user });
+    } catch (error: any) {
+      console.error('Get profile API error:', error);
+      res.status(500).json({ error: error.message || 'Failed to get profile' });
+    }
+  });
+
+  // 3. Update User Profile Settings
+  app.put('/api/user/profile', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const uid = req.user?.uid;
+      if (!uid) return res.status(401).json({ error: 'Missing UID' });
+
+      const updates = req.body;
+      delete updates.id;
+      delete updates.uid;
+      // Do not allow regular users to self-escalate role/subscription
+      const caller = await getUserByIdOrUid(uid);
+      if (caller?.role !== 'admin') {
+        delete updates.role;
+        delete updates.accountStatus;
+        delete updates.subscription;
+      }
+
+      const updated = await updateUserProfile(uid, updates);
+      res.json({ success: true, user: updated });
+    } catch (error: any) {
+      console.error('Update profile API error:', error);
+      res.status(500).json({ error: error.message || 'Failed to update profile' });
+    }
+  });
+
+  // 4. Admin: Get All Users
+  app.get('/api/admin/users', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const callerUid = req.user?.uid;
+      const callerEmail = req.user?.email?.toLowerCase();
+      const caller = callerUid ? await getUserByIdOrUid(callerUid) : null;
+
+      const isAdmin = caller?.role === 'admin' || callerEmail === 'milhamyogaswara@gmail.com';
+      if (!isAdmin) {
+        return res.status(403).json({ error: 'Forbidden: Admin access required' });
+      }
+
+      const allUsers = await getAllUsers();
+      res.json({ success: true, users: allUsers });
+    } catch (error: any) {
+      console.error('Admin get users API error:', error);
+      res.status(500).json({ error: error.message || 'Failed to fetch users' });
+    }
+  });
+
+  // 5. Admin: Authorize / Update User
+  app.put('/api/admin/users/:uid', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const callerUid = req.user?.uid;
+      const callerEmail = req.user?.email?.toLowerCase();
+      const caller = callerUid ? await getUserByIdOrUid(callerUid) : null;
+
+      const isAdmin = caller?.role === 'admin' || callerEmail === 'milhamyogaswara@gmail.com';
+      if (!isAdmin) {
+        return res.status(403).json({ error: 'Forbidden: Admin access required' });
+      }
+
+      const targetUid = req.params.uid;
+      const updates = req.body;
+      const updated = await updateUserProfile(targetUid, updates);
+      res.json({ success: true, user: updated });
+    } catch (error: any) {
+      console.error('Admin update user API error:', error);
+      res.status(500).json({ error: error.message || 'Failed to update user' });
+    }
+  });
+
+  // 6. Admin: Add New User Directly
+  app.post('/api/admin/users', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const callerUid = req.user?.uid;
+      const callerEmail = req.user?.email?.toLowerCase();
+      const caller = callerUid ? await getUserByIdOrUid(callerUid) : null;
+
+      const isAdmin = caller?.role === 'admin' || callerEmail === 'milhamyogaswara@gmail.com';
+      if (!isAdmin) {
+        return res.status(403).json({ error: 'Forbidden: Admin access required' });
+      }
+
+      const payload = req.body;
+      const targetUid = payload.uid || payload.email.replace(/[^a-zA-Z0-9]/g, '_');
+      const saved = await adminUpsertUser({
+        ...payload,
+        id: targetUid,
+        uid: targetUid,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      res.json({ success: true, user: saved });
+    } catch (error: any) {
+      console.error('Admin add user API error:', error);
+      res.status(500).json({ error: error.message || 'Failed to add user' });
+    }
+  });
+
+  // 7. Admin: Delete User
+  app.delete('/api/admin/users/:uid', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const callerUid = req.user?.uid;
+      const callerEmail = req.user?.email?.toLowerCase();
+      const caller = callerUid ? await getUserByIdOrUid(callerUid) : null;
+
+      const isAdmin = caller?.role === 'admin' || callerEmail === 'milhamyogaswara@gmail.com';
+      if (!isAdmin) {
+        return res.status(403).json({ error: 'Forbidden: Admin access required' });
+      }
+
+      const targetUid = req.params.uid;
+      await deleteUserByUid(targetUid);
+      res.json({ success: true, message: 'User deleted successfully' });
+    } catch (error: any) {
+      console.error('Admin delete user API error:', error);
+      res.status(500).json({ error: error.message || 'Failed to delete user' });
+    }
+  });
+
+  // 8. Assistants API
+  app.get('/api/assistants', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const uid = req.user?.uid;
+      if (!uid) return res.status(401).json({ error: 'Missing UID' });
+      const list = await getAssistantsByUserId(uid);
+      res.json({ success: true, assistants: list });
+    } catch (error: any) {
+      console.error('Get assistants error:', error);
+      res.status(500).json({ error: error.message || 'Failed to get assistants' });
+    }
+  });
+
+  app.post('/api/assistants', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const uid = req.user?.uid;
+      if (!uid) return res.status(401).json({ error: 'Missing UID' });
+      const data = { ...req.body, userId: uid };
+      const saved = await upsertAssistant(data);
+      res.json({ success: true, assistant: saved });
+    } catch (error: any) {
+      console.error('Save assistant error:', error);
+      res.status(500).json({ error: error.message || 'Failed to save assistant' });
+    }
+  });
+
+  app.delete('/api/assistants/:id', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const uid = req.user?.uid;
+      if (!uid) return res.status(401).json({ error: 'Missing UID' });
+      await deleteAssistant(req.params.id, uid);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error('Delete assistant error:', error);
+      res.status(500).json({ error: error.message || 'Failed to delete assistant' });
+    }
+  });
+
+  // 9. Training Rules API
+  app.get('/api/training-rules', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const uid = req.user?.uid;
+      if (!uid) return res.status(401).json({ error: 'Missing UID' });
+      const assistantId = req.query.assistantId as string | undefined;
+      const list = await getTrainingRules(uid, assistantId);
+      res.json({ success: true, rules: list });
+    } catch (error: any) {
+      console.error('Get training rules error:', error);
+      res.status(500).json({ error: error.message || 'Failed to get training rules' });
+    }
+  });
+
+  app.post('/api/training-rules', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const uid = req.user?.uid;
+      if (!uid) return res.status(401).json({ error: 'Missing UID' });
+      const data = { ...req.body, userId: uid };
+      const saved = await upsertTrainingRule(data);
+      res.json({ success: true, rule: saved });
+    } catch (error: any) {
+      console.error('Save training rule error:', error);
+      res.status(500).json({ error: error.message || 'Failed to save training rule' });
+    }
+  });
+
+  app.delete('/api/training-rules/:id', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const uid = req.user?.uid;
+      if (!uid) return res.status(401).json({ error: 'Missing UID' });
+      await deleteTrainingRule(req.params.id, uid);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error('Delete training rule error:', error);
+      res.status(500).json({ error: error.message || 'Failed to delete training rule' });
+    }
+  });
+
+  // 10. Skills API
+  app.get('/api/skills', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const uid = req.user?.uid;
+      if (!uid) return res.status(401).json({ error: 'Missing UID' });
+      const assistantId = req.query.assistantId as string | undefined;
+      const list = await getSkills(uid, assistantId);
+      res.json({ success: true, skills: list });
+    } catch (error: any) {
+      console.error('Get skills error:', error);
+      res.status(500).json({ error: error.message || 'Failed to get skills' });
+    }
+  });
+
+  app.post('/api/skills', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const uid = req.user?.uid;
+      if (!uid) return res.status(401).json({ error: 'Missing UID' });
+      const data = { ...req.body, userId: uid };
+      const saved = await upsertSkill(data);
+      res.json({ success: true, skill: saved });
+    } catch (error: any) {
+      console.error('Save skill error:', error);
+      res.status(500).json({ error: error.message || 'Failed to save skill' });
+    }
+  });
+
+  app.delete('/api/skills/:id', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const uid = req.user?.uid;
+      if (!uid) return res.status(401).json({ error: 'Missing UID' });
+      await deleteSkill(req.params.id, uid);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error('Delete skill error:', error);
+      res.status(500).json({ error: error.message || 'Failed to delete skill' });
+    }
+  });
+
+  // 11. SOPs API
+  app.get('/api/sops', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const uid = req.user?.uid;
+      if (!uid) return res.status(401).json({ error: 'Missing UID' });
+      const assistantId = req.query.assistantId as string | undefined;
+      const list = await getSops(uid, assistantId);
+      res.json({ success: true, sops: list });
+    } catch (error: any) {
+      console.error('Get sops error:', error);
+      res.status(500).json({ error: error.message || 'Failed to get sops' });
+    }
+  });
+
+  app.post('/api/sops', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const uid = req.user?.uid;
+      if (!uid) return res.status(401).json({ error: 'Missing UID' });
+      const data = { ...req.body, userId: uid };
+      const saved = await upsertSop(data);
+      res.json({ success: true, sop: saved });
+    } catch (error: any) {
+      console.error('Save sop error:', error);
+      res.status(500).json({ error: error.message || 'Failed to save sop' });
+    }
+  });
+
+  app.delete('/api/sops/:id', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const uid = req.user?.uid;
+      if (!uid) return res.status(401).json({ error: 'Missing UID' });
+      await deleteSop(req.params.id, uid);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error('Delete sop error:', error);
+      res.status(500).json({ error: error.message || 'Failed to delete sop' });
+    }
+  });
+
+  // 12. Memories API
+  app.get('/api/memories', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const uid = req.user?.uid;
+      if (!uid) return res.status(401).json({ error: 'Missing UID' });
+      const assistantId = req.query.assistantId as string | undefined;
+      const list = await getMemories(uid, assistantId);
+      res.json({ success: true, memories: list });
+    } catch (error: any) {
+      console.error('Get memories error:', error);
+      res.status(500).json({ error: error.message || 'Failed to get memories' });
+    }
+  });
+
+  app.post('/api/memories', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const uid = req.user?.uid;
+      if (!uid) return res.status(401).json({ error: 'Missing UID' });
+      const data = { ...req.body, userId: uid };
+      const saved = await upsertMemory(data);
+      res.json({ success: true, memory: saved });
+    } catch (error: any) {
+      console.error('Save memory error:', error);
+      res.status(500).json({ error: error.message || 'Failed to save memory' });
+    }
+  });
+
+  app.delete('/api/memories/:id', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const uid = req.user?.uid;
+      if (!uid) return res.status(401).json({ error: 'Missing UID' });
+      await deleteMemory(req.params.id, uid);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error('Delete memory error:', error);
+      res.status(500).json({ error: error.message || 'Failed to delete memory' });
+    }
+  });
+
+  // 13. Automations API
+  app.get('/api/automations', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const uid = req.user?.uid;
+      if (!uid) return res.status(401).json({ error: 'Missing UID' });
+      const assistantId = req.query.assistantId as string | undefined;
+      const list = await getAutomations(uid, assistantId);
+      res.json({ success: true, automations: list });
+    } catch (error: any) {
+      console.error('Get automations error:', error);
+      res.status(500).json({ error: error.message || 'Failed to get automations' });
+    }
+  });
+
+  app.post('/api/automations', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const uid = req.user?.uid;
+      if (!uid) return res.status(401).json({ error: 'Missing UID' });
+      const data = { ...req.body, userId: uid };
+      const saved = await upsertAutomation(data);
+      res.json({ success: true, automation: saved });
+    } catch (error: any) {
+      console.error('Save automation error:', error);
+      res.status(500).json({ error: error.message || 'Failed to save automation' });
+    }
+  });
+
+  app.delete('/api/automations/:id', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const uid = req.user?.uid;
+      if (!uid) return res.status(401).json({ error: 'Missing UID' });
+      await deleteAutomation(req.params.id, uid);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error('Delete automation error:', error);
+      res.status(500).json({ error: error.message || 'Failed to delete automation' });
+    }
+  });
+
+  // 14. Activity Logs API
+  app.get('/api/activity-logs', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const uid = req.user?.uid;
+      if (!uid) return res.status(401).json({ error: 'Missing UID' });
+      const assistantId = req.query.assistantId as string | undefined;
+      const list = await getActivityLogs(uid, assistantId);
+      res.json({ success: true, logs: list });
+    } catch (error: any) {
+      console.error('Get activity logs error:', error);
+      res.status(500).json({ error: error.message || 'Failed to get activity logs' });
+    }
+  });
+
+  app.post('/api/activity-logs', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const uid = req.user?.uid;
+      if (!uid) return res.status(401).json({ error: 'Missing UID' });
+      const data = { ...req.body, userId: uid };
+      const saved = await insertActivityLog(data);
+      res.json({ success: true, log: saved });
+    } catch (error: any) {
+      console.error('Save activity log error:', error);
+      res.status(500).json({ error: error.message || 'Failed to save activity log' });
+    }
+  });
+
+  // 15. Tools Config API
+  app.get('/api/tools-config', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const uid = req.user?.uid;
+      if (!uid) return res.status(401).json({ error: 'Missing UID' });
+      const list = await getToolsConfigs(uid);
+      res.json({ success: true, configs: list });
+    } catch (error: any) {
+      console.error('Get tools config error:', error);
+      res.status(500).json({ error: error.message || 'Failed to get tools config' });
+    }
+  });
+
+  app.post('/api/tools-config', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const uid = req.user?.uid;
+      if (!uid) return res.status(401).json({ error: 'Missing UID' });
+      const { toolKey, status, config } = req.body;
+      const data = {
+        id: `${uid}_${toolKey}`,
+        userId: uid,
+        toolKey,
+        status,
+        config,
+      };
+      const saved = await upsertToolConfig(data);
+      res.json({ success: true, toolConfig: saved });
+    } catch (error: any) {
+      console.error('Save tools config error:', error);
+      res.status(500).json({ error: error.message || 'Failed to save tools config' });
+    }
+  });
+
+  // 16. Test Cases API
+  app.get('/api/test-cases', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const uid = req.user?.uid;
+      if (!uid) return res.status(401).json({ error: 'Missing UID' });
+      const assistantId = req.query.assistantId as string | undefined;
+      const list = await getTestCases(uid, assistantId);
+      res.json({ success: true, testCases: list });
+    } catch (error: any) {
+      console.error('Get test cases error:', error);
+      res.status(500).json({ error: error.message || 'Failed to get test cases' });
+    }
+  });
+
+  app.post('/api/test-cases', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const uid = req.user?.uid;
+      if (!uid) return res.status(401).json({ error: 'Missing UID' });
+      const data = { ...req.body, userId: uid };
+      const saved = await upsertTestCase(data);
+      res.json({ success: true, testCase: saved });
+    } catch (error: any) {
+      console.error('Save test case error:', error);
+      res.status(500).json({ error: error.message || 'Failed to save test case' });
     }
   });
 
