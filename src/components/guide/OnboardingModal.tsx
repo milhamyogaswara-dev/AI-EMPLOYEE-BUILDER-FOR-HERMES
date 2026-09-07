@@ -5,9 +5,11 @@ import { NavView } from '../Sidebar';
 interface OnboardingModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onNavigate: (view: NavView) => void;
-  onOpenWizard: () => void;
-  onDismissForever: () => void;
+  onNavigate?: (view: NavView) => void;
+  onOpenWizard?: () => void;
+  onDismissForever?: () => void;
+  onStartTour?: () => void;
+  onSkip?: () => void;
 }
 
 export const OnboardingModal: React.FC<OnboardingModalProps> = ({
@@ -16,23 +18,54 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
   onNavigate,
   onOpenWizard,
   onDismissForever,
+  onStartTour,
+  onSkip,
 }) => {
   if (!isOpen) return null;
 
   const handleAction = (action: 'wizard' | 'guide' | 'templates') => {
-    onDismissForever();
+    if (typeof onDismissForever === 'function') {
+      try {
+        onDismissForever();
+      } catch (err) {
+        console.error('Error in onDismissForever:', err);
+      }
+    }
     if (action === 'wizard') {
-      onOpenWizard();
+      if (typeof onOpenWizard === 'function') {
+        onOpenWizard();
+      } else if (typeof onNavigate === 'function') {
+        onNavigate('wizard');
+      }
     } else if (action === 'guide') {
-      onNavigate('guide');
+      if (typeof onStartTour === 'function') {
+        onStartTour();
+      } else if (typeof onNavigate === 'function') {
+        onNavigate('guide');
+      }
     } else if (action === 'templates') {
-      onNavigate('templates');
+      if (typeof onNavigate === 'function') {
+        onNavigate('templates');
+      }
+    }
+    if (typeof onClose === 'function') {
+      onClose();
     }
   };
 
   const handleSkip = () => {
-    onDismissForever();
-    onClose();
+    if (typeof onDismissForever === 'function') {
+      try {
+        onDismissForever();
+      } catch (err) {
+        console.error('Error in onDismissForever:', err);
+      }
+    }
+    if (typeof onSkip === 'function') {
+      onSkip();
+    } else if (typeof onClose === 'function') {
+      onClose();
+    }
   };
 
   return (

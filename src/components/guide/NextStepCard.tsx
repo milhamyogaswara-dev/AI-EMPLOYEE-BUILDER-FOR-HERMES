@@ -3,9 +3,12 @@ import { ArrowRight, Lightbulb } from 'lucide-react';
 import { NavView } from '../Sidebar';
 
 interface NextStepCardProps {
-  currentModule: NavView;
+  currentModule?: NavView;
+  currentView?: NavView;
   onNavigate: (view: NavView) => void;
   beginnerMode?: boolean;
+  guideProgress?: { beginnerMode?: boolean };
+  onOpenGuide?: (topicId: string) => void;
 }
 
 const NEXT_STEPS_MAP: Partial<Record<NavView, { message: string; target: NavView; actionLabel: string }>> = {
@@ -53,12 +56,19 @@ const NEXT_STEPS_MAP: Partial<Record<NavView, { message: string; target: NavView
 
 export const NextStepCard: React.FC<NextStepCardProps> = ({
   currentModule,
+  currentView,
   onNavigate,
   beginnerMode = true,
+  guideProgress,
+  onOpenGuide,
 }) => {
-  if (!beginnerMode) return null;
+  const isBeginner = guideProgress?.beginnerMode ?? beginnerMode;
+  if (!isBeginner) return null;
 
-  const nextInfo = NEXT_STEPS_MAP[currentModule];
+  const targetView = currentModule || currentView;
+  if (!targetView) return null;
+
+  const nextInfo = NEXT_STEPS_MAP[targetView];
   if (!nextInfo) return null;
 
   return (

@@ -106,12 +106,12 @@ export const InteractiveTour: React.FC<InteractiveTourProps> = ({
 
   const handleNext = () => {
     if (isLast) {
-      onCompleteTour();
-      onClose();
+      if (typeof onCompleteTour === 'function') onCompleteTour();
+      if (typeof onClose === 'function') onClose();
     } else {
       const next = currentStep + 1;
       setCurrentStep(next);
-      onNavigate(TOUR_STEPS[next].targetView);
+      if (typeof onNavigate === 'function') onNavigate(TOUR_STEPS[next].targetView);
     }
   };
 
@@ -119,7 +119,7 @@ export const InteractiveTour: React.FC<InteractiveTourProps> = ({
     if (!isFirst) {
       const prev = currentStep - 1;
       setCurrentStep(prev);
-      onNavigate(TOUR_STEPS[prev].targetView);
+      if (typeof onNavigate === 'function') onNavigate(TOUR_STEPS[prev].targetView);
     }
   };
 

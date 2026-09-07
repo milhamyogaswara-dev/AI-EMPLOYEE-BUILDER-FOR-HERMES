@@ -815,6 +815,20 @@ export default function App() {
       <OnboardingModal
         isOpen={showOnboardingGuide}
         onClose={() => setShowOnboardingGuide(false)}
+        onNavigate={(view) => {
+          setShowOnboardingGuide(false);
+          handleUpdateGuideProgress({ onboardingGuideShown: true });
+          setCurrentView(view);
+        }}
+        onOpenWizard={() => {
+          setShowOnboardingGuide(false);
+          handleUpdateGuideProgress({ onboardingGuideShown: true });
+          setCurrentView('wizard');
+        }}
+        onDismissForever={() => {
+          setShowOnboardingGuide(false);
+          handleUpdateGuideProgress({ onboardingGuideShown: true });
+        }}
         onStartTour={() => {
           setShowOnboardingGuide(false);
           handleUpdateGuideProgress({ onboardingGuideShown: true });
