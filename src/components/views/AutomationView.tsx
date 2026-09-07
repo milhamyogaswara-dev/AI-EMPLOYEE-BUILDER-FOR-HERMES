@@ -14,6 +14,7 @@ import {
   Loader2,
   ToggleLeft,
   ToggleRight,
+  HelpCircle,
 } from 'lucide-react';
 import { Assistant, AutomationItem } from '../../types';
 import { planAutomationClient } from '../../utils/aiClient';
@@ -24,6 +25,7 @@ interface AutomationViewProps {
   onAddAutomation: (auto: Omit<AutomationItem, 'id'>) => void;
   onToggleAutomation: (id: string) => void;
   onDeleteAutomation: (id: string) => void;
+  onOpenGuide?: (topicId: string) => void;
 }
 
 export const AutomationView: React.FC<AutomationViewProps> = ({
@@ -32,6 +34,7 @@ export const AutomationView: React.FC<AutomationViewProps> = ({
   onAddAutomation,
   onToggleAutomation,
   onDeleteAutomation,
+  onOpenGuide,
 }) => {
   const { t } = useLanguage();
   const [isAiModalOpen, setIsAiModalOpen] = useState<boolean>(false);
@@ -107,14 +110,28 @@ export const AutomationView: React.FC<AutomationViewProps> = ({
           </p>
         </div>
 
-        <button
-          onClick={() => setIsAiModalOpen(true)}
-          id="btn-add-automation-ai"
-          className="px-5 py-2.5 rounded-xl bg-[#FF5F1F] hover:bg-[#e04f14] text-white font-mono text-xs shadow-[0_0_15px_rgba(255,95,31,0.3)] transition flex items-center gap-2 shrink-0 active:scale-98 uppercase tracking-wider relative z-10"
-        >
-          <Sparkles className="w-4 h-4" />
-          <span>Create Routine</span>
-        </button>
+        <div className="flex items-center gap-2.5 relative z-10 shrink-0">
+          {onOpenGuide && (
+            <button
+              onClick={() => onOpenGuide('guide_automation')}
+              id="btn-automation-guide"
+              className="px-4 py-2.5 rounded-xl bg-[#1A1A1A] hover:bg-[#252525] border border-white/10 hover:border-[#FF5F1F]/40 text-white font-mono text-xs transition flex items-center gap-2 shadow-sm"
+              title="Pelajari bagaimana automation & scheduled routines bekerja"
+            >
+              <HelpCircle className="w-4 h-4 text-[#FF5F1F]" />
+              <span>Bagaimana automation bekerja?</span>
+            </button>
+          )}
+
+          <button
+            onClick={() => setIsAiModalOpen(true)}
+            id="btn-add-automation-ai"
+            className="px-5 py-2.5 rounded-xl bg-[#FF5F1F] hover:bg-[#e04f14] text-white font-mono text-xs shadow-[0_0_15px_rgba(255,95,31,0.3)] transition flex items-center gap-2 active:scale-98 uppercase tracking-wider"
+          >
+            <Sparkles className="w-4 h-4" />
+            <span>Create Routine</span>
+          </button>
+        </div>
       </div>
 
       {/* Automations Grid */}

@@ -271,3 +271,16 @@ export interface AssistantTemplate {
   defaultRules: string[];
   defaultLanguage: 'INDONESIAN' | 'ENGLISH' | 'MIXED';
 }
+
+export interface UserGuideProgress {
+  started: boolean;
+  completed: boolean;
+  currentStep: number;
+  completedSteps: string[];
+  tourCompleted: boolean;
+  onboardingGuideShown: boolean;
+  lastGuideSection?: string;
+  beginnerMode?: boolean;
+  updatedAt?: any;
+}
+

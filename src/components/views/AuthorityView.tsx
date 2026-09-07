@@ -16,11 +16,13 @@ import { Assistant, AuthorityAction, AuthorityLevel, AuthorityTier } from '../..
 interface AuthorityViewProps {
   assistant: Assistant;
   onUpdateAssistant: (assistant: Assistant) => void;
+  onOpenGuide?: (topicId: string) => void;
 }
 
 export const AuthorityView: React.FC<AuthorityViewProps> = ({
   assistant,
   onUpdateAssistant,
+  onOpenGuide,
 }) => {
   const { t } = useLanguage();
   const [actions, setActions] = useState<AuthorityAction[]>([
@@ -151,10 +153,24 @@ export const AuthorityView: React.FC<AuthorityViewProps> = ({
           </p>
         </div>
 
-        <div className="bg-[#1A1A1A] p-3.5 rounded-xl border border-white/10 text-right shrink-0 relative z-10">
-          <span className="text-[9px] text-[#888] font-mono uppercase tracking-wider block">Active Mode</span>
-          <div className="text-sm font-serif italic text-[#FF5F1F]">
-            {assistant.authorityLevel.replace(/_/g, ' ')}
+        <div className="flex items-center gap-3 relative z-10 shrink-0">
+          {onOpenGuide && (
+            <button
+              onClick={() => onOpenGuide('guide_authority')}
+              id="btn-authority-guide"
+              className="px-4 py-2.5 rounded-xl bg-[#1A1A1A] hover:bg-[#252525] border border-white/10 hover:border-[#FF5F1F]/40 text-white font-mono text-xs transition flex items-center gap-2 shadow-sm"
+              title="Pelajari panduan pembagian tingkat otoritas Green/Yellow/Red"
+            >
+              <HelpCircle className="w-4 h-4 text-[#FF5F1F]" />
+              <span>Kapan gunakan GREEN / YELLOW / RED?</span>
+            </button>
+          )}
+
+          <div className="bg-[#1A1A1A] p-3.5 rounded-xl border border-white/10 text-right">
+            <span className="text-[9px] text-[#888] font-mono uppercase tracking-wider block">Active Mode</span>
+            <div className="text-sm font-serif italic text-[#FF5F1F]">
+              {assistant.authorityLevel.replace(/_/g, ' ')}
+            </div>
           </div>
         </div>
       </div>

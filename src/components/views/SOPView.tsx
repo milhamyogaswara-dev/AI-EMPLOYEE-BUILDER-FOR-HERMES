@@ -13,6 +13,7 @@ import {
   ChevronUp,
   AlertTriangle,
   ArrowRight,
+  HelpCircle,
 } from 'lucide-react';
 import { Assistant, SOP } from '../../types';
 import { useLanguage } from '../../contexts/LanguageContext';
@@ -24,6 +25,7 @@ interface SOPViewProps {
   onAddSOP: (sop: Omit<SOP, 'id' | 'createdAt' | 'updatedAt'>) => void;
   onUpdateSOP: (sop: SOP) => void;
   onDeleteSOP: (id: string) => void;
+  onOpenGuide?: (topicId: string) => void;
 }
 
 export const SOPView: React.FC<SOPViewProps> = ({
@@ -32,6 +34,7 @@ export const SOPView: React.FC<SOPViewProps> = ({
   onAddSOP,
   onUpdateSOP,
   onDeleteSOP,
+  onOpenGuide,
 }) => {
   const { t } = useLanguage();
   const [isAiModalOpen, setIsAiModalOpen] = useState<boolean>(false);
@@ -120,14 +123,28 @@ export const SOPView: React.FC<SOPViewProps> = ({
           </p>
         </div>
 
-        <button
-          onClick={() => setIsAiModalOpen(true)}
-          id="btn-generate-sop-ai"
-          className="px-5 py-2.5 rounded-xl bg-[#FF5F1F] hover:bg-[#e04f14] text-white font-mono text-xs shadow-[0_0_15px_rgba(255,95,31,0.3)] transition flex items-center gap-2 shrink-0 active:scale-98 tracking-wider uppercase relative z-10"
-        >
-          <Sparkles className="w-4 h-4" />
-          <span>Synthesize SOP</span>
-        </button>
+        <div className="flex items-center gap-2.5 relative z-10 shrink-0">
+          {onOpenGuide && (
+            <button
+              onClick={() => onOpenGuide('guide_sop')}
+              id="btn-sop-guide"
+              className="px-4 py-2.5 rounded-xl bg-[#1A1A1A] hover:bg-[#252525] border border-white/10 hover:border-[#FF5F1F]/40 text-white font-mono text-xs transition flex items-center gap-2 shadow-sm"
+              title="Buka panduan standar operasional prosedur"
+            >
+              <HelpCircle className="w-4 h-4 text-[#FF5F1F]" />
+              <span>Apa itu SOP?</span>
+            </button>
+          )}
+
+          <button
+            onClick={() => setIsAiModalOpen(true)}
+            id="btn-generate-sop-ai"
+            className="px-5 py-2.5 rounded-xl bg-[#FF5F1F] hover:bg-[#e04f14] text-white font-mono text-xs shadow-[0_0_15px_rgba(255,95,31,0.3)] transition flex items-center gap-2 active:scale-98 tracking-wider uppercase"
+          >
+            <Sparkles className="w-4 h-4" />
+            <span>Synthesize SOP</span>
+          </button>
+        </div>
       </div>
 
       {/* Search Bar */}

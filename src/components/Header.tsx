@@ -7,7 +7,8 @@ import {
   ArrowUpRight,
   Sun,
   Moon,
-  SlidersHorizontal
+  SlidersHorizontal,
+  BookOpen
 } from 'lucide-react';
 import { useLanguage } from '../contexts/LanguageContext';
 
@@ -93,6 +94,10 @@ export const Header: React.FC<HeaderProps> = ({
       title: 'Assistant Starter Templates',
       subtitle: 'Instantly clone pre-configured marketing, executive, and research roles.',
     },
+    guide: {
+      title: 'Panduan Pengguna — Hermes Studio Academy',
+      subtitle: 'Pedoman langkah demi langkah membangun AI Employee berkinerja tinggi.',
+    },
     settings: {
       title: 'Settings & Workspace Preferences',
       subtitle: 'Configure user profile, language options, backup, and advanced settings.',
@@ -131,6 +136,16 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* Right Actions & Active Assistant Pill */}
       <div className="flex items-center gap-2.5 sm:gap-3.5 shrink-0">
+        <button
+          onClick={() => onNavigate('guide')}
+          id="btn-header-guide"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#141414] hover:bg-[#1C1C1C] border border-white/10 hover:border-[#FF5F1F]/40 text-[#AAA] hover:text-white text-xs font-mono transition"
+          title="Buka Panduan Pengguna"
+        >
+          <BookOpen className="w-3.5 h-3.5 text-[#FF5F1F]" />
+          <span className="hidden sm:inline">PANDUAN</span>
+        </button>
+
         <button
           onClick={onToggleAdvancedMode}
           id="toggle-advanced-mode"

@@ -15,6 +15,7 @@ import {
   RefreshCw,
   GitMerge,
   ArrowRight,
+  HelpCircle,
 } from 'lucide-react';
 import { Assistant, Memory, MemoryCategory } from '../../types';
 import { useLanguage } from '../../contexts/LanguageContext';
@@ -25,6 +26,7 @@ interface MemoryViewProps {
   onAddMemory: (memory: Omit<Memory, 'id' | 'createdAt' | 'updatedAt'>) => void;
   onUpdateMemory: (memory: Memory) => void;
   onDeleteMemory: (id: string) => void;
+  onOpenGuide?: (topicId: string) => void;
 }
 
 const CATEGORIES: { id: MemoryCategory; label: string; desc: string }[] = [
@@ -43,6 +45,7 @@ export const MemoryView: React.FC<MemoryViewProps> = ({
   onAddMemory,
   onUpdateMemory,
   onDeleteMemory,
+  onOpenGuide,
 }) => {
   const { t } = useLanguage();
   const [selectedCategory, setSelectedCategory] = useState<MemoryCategory | 'ALL'>('ALL');
@@ -162,19 +165,33 @@ export const MemoryView: React.FC<MemoryViewProps> = ({
             {'Your assistant references these persistent facts, pricing models, and business parameters in every conversation and task execution.'}
           </p>
         </div>
-        <button
-          onClick={() => {
-            setEditingMemory(null);
-            setFormKey('');
-            setFormValue('');
-            setIsAddModalOpen(true);
-          }}
-          id="btn-add-memory"
-          className="px-5 py-2.5 rounded-xl bg-[#FF5F1F] hover:bg-[#e04f14] text-white font-mono text-xs shadow-[0_0_15px_rgba(255,95,31,0.3)] transition flex items-center gap-2 shrink-0 active:scale-98 uppercase tracking-wider relative z-10"
-        >
-          <Plus className="w-4 h-4" />
-          <span>{'Add Fact'}</span>
-        </button>
+        <div className="flex items-center gap-2.5 relative z-10 shrink-0">
+          {onOpenGuide && (
+            <button
+              onClick={() => onOpenGuide('guide_memory')}
+              id="btn-memory-guide"
+              className="px-4 py-2.5 rounded-xl bg-[#1A1A1A] hover:bg-[#252525] border border-white/10 hover:border-[#FF5F1F]/40 text-white font-mono text-xs transition flex items-center gap-2 shadow-sm"
+              title="Pelajari fungsi dan best practice Memory Store"
+            >
+              <HelpCircle className="w-4 h-4 text-[#FF5F1F]" />
+              <span>Memory digunakan untuk apa?</span>
+            </button>
+          )}
+
+          <button
+            onClick={() => {
+              setEditingMemory(null);
+              setFormKey('');
+              setFormValue('');
+              setIsAddModalOpen(true);
+            }}
+            id="btn-add-memory"
+            className="px-5 py-2.5 rounded-xl bg-[#FF5F1F] hover:bg-[#e04f14] text-white font-mono text-xs shadow-[0_0_15px_rgba(255,95,31,0.3)] transition flex items-center gap-2 active:scale-98 uppercase tracking-wider"
+          >
+            <Plus className="w-4 h-4" />
+            <span>{'Add Fact'}</span>
+          </button>
+        </div>
       </div>
 
       {/* Memory Health Scanner Widget */}

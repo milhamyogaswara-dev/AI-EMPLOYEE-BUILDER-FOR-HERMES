@@ -19,6 +19,7 @@ import {
   Key,
   Globe,
   Zap,
+  HelpCircle,
 } from 'lucide-react';
 import { Assistant, TestCase, TrainingRule } from '../../types';
 import { callDirectLLM } from '../../utils/aiClient';
@@ -27,12 +28,14 @@ interface TestLabViewProps {
   assistant: Assistant;
   onAddRule: (rule: Omit<TrainingRule, 'id' | 'createdAt'>) => void;
   onUpdateAssistantScore: (assistantId: string, score: number) => void;
+  onOpenGuide?: (topicId: string) => void;
 }
 
 export const TestLabView: React.FC<TestLabViewProps> = ({
   assistant,
   onAddRule,
   onUpdateAssistantScore,
+  onOpenGuide,
 }) => {
   const { t } = useLanguage();
   const [testPrompt, setTestPrompt] = useState<string>(
@@ -238,8 +241,20 @@ Provide JSON:
           </p>
         </div>
 
-        <div className="flex flex-col gap-2 relative z-10 shrink-0">
-          <div className="bg-[#1A1A1A] p-3.5 rounded-xl border border-white/10 text-right">
+        <div className="flex flex-col gap-2 relative z-10 shrink-0 items-end">
+          {onOpenGuide && (
+            <button
+              onClick={() => onOpenGuide('guide_testlab')}
+              id="btn-testlab-guide"
+              className="px-3.5 py-2 rounded-xl bg-[#1A1A1A] hover:bg-[#252525] border border-white/10 hover:border-[#FF5F1F]/40 text-white font-mono text-xs transition flex items-center gap-2 shadow-sm"
+              title="Pelajari apa yang harus diuji dan indikator kelayakan"
+            >
+              <HelpCircle className="w-4 h-4 text-[#FF5F1F]" />
+              <span>Apa yang harus diuji?</span>
+            </button>
+          )}
+
+          <div className="bg-[#1A1A1A] p-3.5 rounded-xl border border-white/10 text-right w-full">
             <span className="text-[9px] text-[#888] font-mono uppercase tracking-wider block">Quality Benchmark</span>
             <div className="text-xl font-serif italic text-[#FF5F1F]">
               {assistant.testScore}/100 Score

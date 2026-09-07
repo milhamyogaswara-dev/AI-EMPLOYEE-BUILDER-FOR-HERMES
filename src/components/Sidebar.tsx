@@ -15,6 +15,7 @@ import {
   Puzzle,
   Rocket,
   LayoutTemplate,
+  BookOpen,
   Settings,
   ChevronRight,
   Plus,
@@ -40,6 +41,7 @@ export type NavView =
   | 'integrations'
   | 'deploy'
   | 'templates'
+  | 'guide'
   | 'settings'
   | 'admin';
 
@@ -86,6 +88,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'integrations' as NavView, label: 'Integrations', icon: Puzzle, badge: undefined },
     { id: 'deploy' as NavView, label: 'Deploy Hermes', icon: Rocket, badge: undefined },
     { id: 'templates' as NavView, label: 'Templates', icon: LayoutTemplate, badge: undefined },
+    { id: 'guide' as NavView, label: isId ? 'Panduan Pengguna' : 'User Guide', icon: BookOpen, badge: 'PANDUAN' },
     { id: 'settings' as NavView, label: 'Settings', icon: Settings, badge: undefined },
   ];
 

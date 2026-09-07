@@ -9,6 +9,7 @@ import {
   TrainingRule,
   UserProfile,
   ActivityLog,
+  UserGuideProgress,
 } from './types';
 import {
   loadAssistants,
@@ -69,6 +70,17 @@ import { TemplatesView } from './components/views/TemplatesView';
 import { SettingsView } from './components/views/SettingsView';
 import { AdminDashboardView } from './components/views/AdminDashboardView';
 import { AssistantWorkspaceView } from './components/views/AssistantWorkspaceView';
+import { UserGuideView } from './components/views/UserGuideView';
+import { GuideDrawer } from './components/guide/GuideDrawer';
+import { OnboardingModal } from './components/guide/OnboardingModal';
+import { NextStepCard } from './components/guide/NextStepCard';
+import {
+  loadGuideProgress,
+  saveGuideProgress,
+  resetGuideProgress,
+  DEFAULT_GUIDE_PROGRESS,
+} from './services/guideService';
+import { GUIDE_TOPICS, GuideTopic } from './data/userGuide';
 import { ErrorBoundary } from './components/ErrorBoundary';
 
 export default function App() {
@@ -93,6 +105,29 @@ export default function App() {
   const [currentView, setCurrentView] = useState<NavView>('dashboard');
   const [advancedMode, setAdvancedMode] = useState<boolean>(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
+
+  // User Guide state
+  const [guideProgress, setGuideProgress] = useState<UserGuideProgress>(DEFAULT_GUIDE_PROGRESS);
+  const [contextualTopic, setContextualTopic] = useState<GuideTopic | null>(null);
+  const [showOnboardingGuide, setShowOnboardingGuide] = useState<boolean>(false);
+
+  // Guide handlers
+  const handleOpenContextualGuide = (topicId: string) => {
+    const topic = GUIDE_TOPICS.find((t) => t.id === topicId);
+    if (topic) {
+      setContextualTopic(topic);
+    }
+  };
+
+  const handleUpdateGuideProgress = async (updates: Partial<UserGuideProgress>) => {
+    const updated = await saveGuideProgress(currentUser?.uid, updates);
+    setGuideProgress(updated);
+  };
+
+  const handleResetGuideProgress = async () => {
+    const reset = await resetGuideProgress(currentUser?.uid);
+    setGuideProgress(reset);
+  };
 
   // Initial Data Load on User Sign In
   useEffect(() => {
@@ -139,6 +174,13 @@ export default function App() {
         if (loadedTools.length > 0) setTools(loadedTools);
         if (loadedLogs.length > 0) setLogs(loadedLogs);
         
+        // Load User Guide Progress
+        const loadedGuideProgress = await loadGuideProgress(uid);
+        setGuideProgress(loadedGuideProgress);
+        if (!loadedGuideProgress.onboardingGuideShown) {
+          setShowOnboardingGuide(true);
+        }
+
         if (authProfile) {
           setUserProfile(authProfile);
         }
@@ -619,6 +661,7 @@ export default function App() {
               onUpdateSkill={handleUpdateSkill}
               onDeleteSkill={handleDeleteSkill}
               onNavigate={(view) => setCurrentView(view)}
+              onOpenGuide={handleOpenContextualGuide}
             />
           )}
 
@@ -630,6 +673,7 @@ export default function App() {
               onAddSOP={handleAddSOP}
               onUpdateSOP={handleUpdateSOP}
               onDeleteSOP={handleDeleteSOP}
+              onOpenGuide={handleOpenContextualGuide}
             />
           )}
 
@@ -641,6 +685,7 @@ export default function App() {
               onAddMemory={handleAddMemory}
               onUpdateMemory={handleUpdateMemory}
               onDeleteMemory={handleDeleteMemory}
+              onOpenGuide={handleOpenContextualGuide}
             />
           )}
 
@@ -659,6 +704,7 @@ export default function App() {
 
               assistant={activeAssistant}
               onUpdateAssistant={handleUpdateAssistant}
+              onOpenGuide={handleOpenContextualGuide}
             />
           )}
 
@@ -670,6 +716,7 @@ export default function App() {
               onAddAutomation={handleAddAutomation}
               onToggleAutomation={handleToggleAutomation}
               onDeleteAutomation={handleDeleteAutomation}
+              onOpenGuide={handleOpenContextualGuide}
             />
           )}
 
@@ -679,6 +726,7 @@ export default function App() {
               assistant={activeAssistant}
               onAddRule={handleAddRule}
               onUpdateAssistantScore={handleUpdateAssistantScore}
+              onOpenGuide={handleOpenContextualGuide}
             />
           )}
 
@@ -715,6 +763,15 @@ export default function App() {
             />
           )}
 
+          {currentView === 'guide' && (
+            <UserGuideView
+              guideProgress={guideProgress}
+              onUpdateGuideProgress={handleUpdateGuideProgress}
+              onResetGuideProgress={handleResetGuideProgress}
+              onNavigate={(view) => setCurrentView(view)}
+            />
+          )}
+
           {currentView === 'settings' && (
             <SettingsView
 
@@ -728,8 +785,46 @@ export default function App() {
             <AdminDashboardView />
           )}
           </ErrorBoundary>
+
+          {/* Contextual Next Step Guidance for Beginner Mode */}
+          {guideProgress.beginnerMode && currentView !== 'guide' && (
+            <div className="mt-8 max-w-6xl mx-auto">
+              <NextStepCard
+                guideProgress={guideProgress}
+                currentView={currentView}
+                onNavigate={(view) => setCurrentView(view)}
+                onOpenGuide={handleOpenContextualGuide}
+              />
+            </div>
+          )}
         </main>
       </div>
+
+      {/* Contextual Guide Drawer */}
+      <GuideDrawer
+        isOpen={Boolean(contextualTopic)}
+        topic={contextualTopic}
+        onClose={() => setContextualTopic(null)}
+        onNavigate={(view) => {
+          setContextualTopic(null);
+          setCurrentView(view);
+        }}
+      />
+
+      {/* First Login Onboarding Modal */}
+      <OnboardingModal
+        isOpen={showOnboardingGuide}
+        onClose={() => setShowOnboardingGuide(false)}
+        onStartTour={() => {
+          setShowOnboardingGuide(false);
+          handleUpdateGuideProgress({ onboardingGuideShown: true });
+          setCurrentView('guide');
+        }}
+        onSkip={() => {
+          setShowOnboardingGuide(false);
+          handleUpdateGuideProgress({ onboardingGuideShown: true });
+        }}
+      />
     </div>
   );
 }
