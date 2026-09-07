@@ -83,7 +83,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'authority' as NavView, label: 'Authority Rules', icon: ShieldAlert, badge: undefined },
     { id: 'automation' as NavView, label: 'Automation', icon: Zap, badge: undefined },
     { id: 'testlab' as NavView, label: 'Test Lab', icon: FlaskConical, badge: 'MAJOR' },
-    { id: 'integrations' as NavView, label: 'Integrations', icon: Puzzle, badge: 'LOCKED' },
+    { id: 'integrations' as NavView, label: 'Integrations', icon: Puzzle, badge: undefined },
     { id: 'deploy' as NavView, label: 'Deploy Hermes', icon: Rocket, badge: undefined },
     { id: 'templates' as NavView, label: 'Templates', icon: LayoutTemplate, badge: undefined },
     { id: 'settings' as NavView, label: 'Settings', icon: Settings, badge: undefined },

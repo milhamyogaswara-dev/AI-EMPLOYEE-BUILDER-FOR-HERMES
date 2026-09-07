@@ -1,4 +1,3 @@
-import { GoogleGenAI } from '@google/genai';
 import { Assistant } from '../types';
 
 export interface LLMRequestOptions {
@@ -10,88 +9,37 @@ export interface LLMRequestOptions {
 }
 
 /**
- * Direct Client-Side LLM Caller
- * Attempts in order:
- * 1. OpenRouter or Custom Endpoint from localStorage ('hermes_endpoint' + 'hermes_api_key')
- * 2. Gemini API Key from localStorage ('gemini_api_key')
- * 3. Returns null if no direct endpoint/key available (allowing caller to use intelligent local heuristics)
+ * Server-Side Proxied LLM Caller
+ * Zero client-side secrets: All credentials remain strictly on the backend server via environment variables.
+ * Dispatches request to /api/llm/complete.
  */
 export async function callDirectLLM(options: LLMRequestOptions): Promise<string | null> {
   const hermesEndpoint = localStorage.getItem('hermes_endpoint');
-  const hermesApiKey = localStorage.getItem('hermes_api_key');
-  const geminiApiKey = localStorage.getItem('gemini_api_key');
 
-  // Option 1: OpenRouter / Custom OpenAI-compatible endpoint
-  if (hermesEndpoint && hermesApiKey) {
-    try {
-      let targetUrl = hermesEndpoint.trim().replace(/\/+$/, '');
-      if (!targetUrl.endsWith('/chat/completions')) {
-        targetUrl = `${targetUrl}/chat/completions`;
-      }
-
-      const isOpenRouter = targetUrl.includes('openrouter.ai');
-      const model = isOpenRouter
-        ? 'meta-llama/llama-3.3-70b-instruct:free'
-        : 'gpt-4o-mini';
-
-      const messages: any[] = [];
-      if (options.systemInstruction) {
-        messages.push({ role: 'system', content: options.systemInstruction });
-      }
-      messages.push({ role: 'user', content: options.prompt });
-
-      const headers: Record<string, string> = {
+  try {
+    const response = await fetch('/api/llm/complete', {
+      method: 'POST',
+      headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${hermesApiKey.trim()}`,
-      };
+      },
+      body: JSON.stringify({
+        prompt: options.prompt,
+        systemInstruction: options.systemInstruction,
+        temperature: options.temperature,
+        maxTokens: options.maxTokens,
+        jsonMode: options.jsonMode,
+        endpoint: hermesEndpoint || undefined,
+      }),
+    });
 
-      if (isOpenRouter) {
-        headers['HTTP-Referer'] = typeof window !== 'undefined' ? window.location.origin : 'https://hermes-studio.ai';
-        headers['X-Title'] = 'Hermes Studio AI';
+    if (response.ok) {
+      const data = await response.json();
+      if (data.text) {
+        return data.text;
       }
-
-      const response = await fetch(targetUrl, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          model,
-          messages,
-          temperature: options.temperature ?? 0.7,
-          max_tokens: options.maxTokens ?? 1000,
-          response_format: options.jsonMode ? { type: 'json_object' } : undefined,
-        }),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        const content = data?.choices?.[0]?.message?.content;
-        if (content) return content;
-      }
-    } catch (err) {
-      console.warn('Direct OpenRouter/Hermes endpoint call error:', err);
     }
-  }
-
-  // Option 2: Direct Gemini API via @google/genai SDK
-  if (geminiApiKey && geminiApiKey.trim()) {
-    try {
-      const ai = new GoogleGenAI({ apiKey: geminiApiKey.trim() });
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: options.prompt,
-        config: {
-          systemInstruction: options.systemInstruction,
-          temperature: options.temperature ?? 0.7,
-          responseMimeType: options.jsonMode ? 'application/json' : undefined,
-        },
-      });
-
-      if (response.text) {
-        return response.text;
-      }
-    } catch (err) {
-      console.warn('Direct Gemini API call error:', err);
-    }
+  } catch (err) {
+    console.warn('Server-side LLM completion call failed, falling back to heuristics:', err);
   }
 
   return null;

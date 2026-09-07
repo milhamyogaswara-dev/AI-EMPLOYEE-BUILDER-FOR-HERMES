@@ -79,8 +79,8 @@ export const DeployView: React.FC<DeployViewProps> = ({
     .replace(/_+/g, '_')
     .replace(/^_+|_+$/g, '') || 'hermes_agent';
 
-  const savedTelegramToken =
-    localStorage.getItem('hermes_telegram_token') || 'PASTE_BOT_TOKEN_DISINI';
+  // Environment variable reference for Telegram Bot Token in production
+  const savedTelegramToken = '$TELEGRAM_BOT_TOKEN';
 
   // 1. Structured Markdown Prompt for Chat Deployment
   const chatDeploymentPrompt = `# 🚀 HERMES AGENT DEPLOYMENT MANIFEST
@@ -255,7 +255,7 @@ ${asstRules.map((r, i) => `${i + 1}. [${r.type}] ${r.title}: ${r.rule}`).join('\
           platforms: {
             telegram: {
               enabled: true,
-              token: savedTelegramToken !== 'PASTE_BOT_TOKEN_DISINI' ? savedTelegramToken : '',
+              token: savedTelegramToken,
             },
           },
         },

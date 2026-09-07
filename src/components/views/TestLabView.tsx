@@ -21,7 +21,6 @@ import {
   Zap,
 } from 'lucide-react';
 import { Assistant, TestCase, TrainingRule } from '../../types';
-import { GoogleGenAI } from '@google/genai';
 import { callDirectLLM } from '../../utils/aiClient';
 
 interface TestLabViewProps {
@@ -39,9 +38,7 @@ export const TestLabView: React.FC<TestLabViewProps> = ({
   const [testPrompt, setTestPrompt] = useState<string>(
     'Buatkan 3 hook iklan Facebook untuk produk BuildRAB AI yang menyasar kontraktor pemula.'
   );
-  const [apiKey, setApiKey] = useState<string>('');
-  const [showApiKey, setShowApiKey] = useState<boolean>(false);
-  const [activeProvider, setActiveProvider] = useState<string>('LOCAL_BENCHMARK');
+  const [activeProvider, setActiveProvider] = useState<string>('SERVER_AI');
   const [isRunning, setIsRunning] = useState<boolean>(false);
   const [testResult, setTestResult] = useState<any | null>(null);
 
@@ -50,28 +47,21 @@ export const TestLabView: React.FC<TestLabViewProps> = ({
   const [correctionResult, setCorrectionResult] = useState<any | null>(null);
 
   useEffect(() => {
-    const savedGemini = localStorage.getItem('gemini_api_key') || '';
-    const hermesKey = localStorage.getItem('hermes_api_key') || '';
-    const hermesEndpoint = localStorage.getItem('hermes_endpoint') || '';
+    // Purge legacy secrets from localStorage
+    localStorage.removeItem('gemini_api_key');
+    localStorage.removeItem('hermes_api_key');
 
-    if (savedGemini) {
-      setApiKey(savedGemini);
-      setActiveProvider('GEMINI');
-    } else if (hermesKey && hermesEndpoint) {
-      setActiveProvider(hermesEndpoint.includes('openrouter') ? 'OPENROUTER' : 'HERMES_ENDPOINT');
-    } else {
-      setActiveProvider('LOCAL_BENCHMARK');
-    }
+    fetch('/api/health')
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.hasGeminiKey) {
+          setActiveProvider('SERVER_GEMINI');
+        } else {
+          setActiveProvider('SERVER_HERMES');
+        }
+      })
+      .catch(() => setActiveProvider('SERVER_AI'));
   }, []);
-
-  const handleApiKeyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value;
-    setApiKey(val);
-    localStorage.setItem('gemini_api_key', val);
-    if (val.trim()) {
-      setActiveProvider('GEMINI');
-    }
-  };
 
   const sampleTestPrompts = [
     `Buatkan 3 hook iklan Facebook untuk produk BuildRAB AI.`,
@@ -101,43 +91,20 @@ Provide a direct, high-quality, professional execution of the following user tas
       let responseText: string | null = null;
       let usedProvider = 'Studio Evaluation Engine';
 
-      // 1. Check direct Gemini API if key is entered
-      if (apiKey.trim()) {
-        try {
-          const ai = new GoogleGenAI({ apiKey: apiKey.trim() });
-          const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: query,
-            config: {
-              systemInstruction,
-              temperature: 0.7,
-            },
-          });
-          if (response.text) {
-            responseText = response.text;
-            usedProvider = 'Gemini 2.5 Flash (Direct API)';
-          }
-        } catch (geminiErr) {
-          console.warn('Gemini direct test failed, trying alternative:', geminiErr);
-        }
+      // 1. Call server-side LLM proxy (zero client secrets)
+      const rawLLM = await callDirectLLM({
+        systemInstruction,
+        prompt: query,
+        temperature: 0.7,
+      });
+
+      if (rawLLM) {
+        responseText = rawLLM;
+        const ep = localStorage.getItem('hermes_endpoint') || '';
+        usedProvider = ep.includes('openrouter') ? 'OpenRouter API (Server Proxy)' : 'Gemini Flash (Server Proxy)';
       }
 
-      // 2. If no response yet, try OpenRouter/Hermes endpoint from localStorage
-      if (!responseText) {
-        const rawLLM = await callDirectLLM({
-          systemInstruction,
-          prompt: query,
-          temperature: 0.7,
-        });
-
-        if (rawLLM) {
-          responseText = rawLLM;
-          const ep = localStorage.getItem('hermes_endpoint') || '';
-          usedProvider = ep.includes('openrouter') ? 'OpenRouter API' : 'Custom Hermes Endpoint';
-        }
-      }
-
-      // 3. Fallback to intelligent contextual benchmark engine if offline or no keys
+      // 2. Fallback to intelligent contextual benchmark engine if offline or no keys
       if (!responseText) {
         await new Promise((resolve) => setTimeout(resolve, 600));
         responseText = `[${assistant.name} // Respon Simulasi Benchmark]
@@ -278,20 +245,9 @@ Provide JSON:
               {assistant.testScore}/100 Score
             </div>
           </div>
-          <div className="relative group">
-            <input
-              type={showApiKey ? 'text' : 'password'}
-              value={apiKey}
-              onChange={handleApiKeyChange}
-              placeholder="Gemini API Key"
-              className="w-full px-3 py-1.5 rounded-lg bg-[#141414] border border-white/10 text-[10px] sm:text-xs text-[#F0F0F0] placeholder-[#555] focus:outline-none focus:border-[#FF5F1F] font-mono"
-            />
-            <button
-              onClick={() => setShowApiKey(!showApiKey)}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-[#888] hover:text-[#FFF]"
-            >
-              <Key className="w-3 h-3" />
-            </button>
+          <div className="flex items-center justify-end gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-mono text-[10px]">
+            <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+            <span>Server Proxy Secured</span>
           </div>
         </div>
       </div>

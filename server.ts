@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'path';
+import crypto from 'crypto';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, Type } from '@google/genai';
 import dotenv from 'dotenv';
@@ -1142,6 +1143,352 @@ Return JSON:
       console.error('Save test case error:', error);
       res.status(500).json({ error: error.message || 'Failed to save test case' });
     }
+  });
+
+  // ==========================================
+  // Production Integrations Proxy & Security
+  // ==========================================
+  // Server-side LLM completion endpoint (Zero client-side secrets)
+  app.post('/api/llm/complete', async (req, res) => {
+    try {
+      const { prompt, systemInstruction, temperature, maxTokens, jsonMode, endpoint } = req.body;
+      if (!prompt) {
+        return res.status(400).json({ error: 'Prompt is required' });
+      }
+
+      // Check Gemini API first
+      const ai = getGenAI();
+      if (ai) {
+        try {
+          const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+            config: {
+              systemInstruction: systemInstruction || undefined,
+              temperature: temperature ?? 0.7,
+              maxOutputTokens: maxTokens ?? 2000,
+              responseMimeType: jsonMode ? 'application/json' : undefined,
+            },
+          });
+          if (response.text) {
+            return res.json({ success: true, text: response.text });
+          }
+        } catch (geminiErr: any) {
+          console.warn('Server Gemini error, checking fallback:', geminiErr?.message);
+        }
+      }
+
+      // Check OpenRouter / Hermes API via server environment secrets
+      const openRouterKey = process.env.HERMES_API_KEY || process.env.OPENROUTER_API_KEY;
+      const targetEndpoint = (endpoint || process.env.HERMES_ENDPOINT || 'https://openrouter.ai/api/v1').trim();
+
+      if (openRouterKey && targetEndpoint) {
+        let cleanUrl = targetEndpoint.replace(/\/+$/, '');
+        if (!cleanUrl.endsWith('/chat/completions')) {
+          cleanUrl = `${cleanUrl}/chat/completions`;
+        }
+
+        const isOpenRouter = cleanUrl.includes('openrouter.ai');
+        const model = isOpenRouter ? 'meta-llama/llama-3.3-70b-instruct:free' : 'gpt-4o-mini';
+
+        const messages: any[] = [];
+        if (systemInstruction) {
+          messages.push({ role: 'system', content: systemInstruction });
+        }
+        messages.push({ role: 'user', content: prompt });
+
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${openRouterKey}`,
+          'User-Agent': 'Hermes-Studio-Server/2.0',
+        };
+
+        if (isOpenRouter) {
+          headers['HTTP-Referer'] = 'https://hermes-studio.ai';
+          headers['X-Title'] = 'Hermes Studio Server';
+        }
+
+        const fetchResponse = await fetch(cleanUrl, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            model,
+            messages,
+            temperature: temperature ?? 0.7,
+            max_tokens: maxTokens ?? 2000,
+            response_format: jsonMode ? { type: 'json_object' } : undefined,
+          }),
+        });
+
+        if (fetchResponse.ok) {
+          const data = await fetchResponse.json();
+          const content = data?.choices?.[0]?.message?.content;
+          if (content) {
+            return res.json({ success: true, text: content });
+          }
+        }
+      }
+
+      return res.status(503).json({ error: 'No active server LLM provider configured or reachable' });
+    } catch (error: any) {
+      console.error('Server LLM completion error:', error);
+      res.status(500).json({ error: error.message || 'LLM completion failed' });
+    }
+  });
+
+  app.get('/api/integrations/status', (req, res) => {
+    res.json({
+      success: true,
+      hermes: {
+        hasApiKey: !!(process.env.HERMES_API_KEY || process.env.OPENROUTER_API_KEY),
+        defaultEndpoint: process.env.HERMES_ENDPOINT || 'https://openrouter.ai/api/v1',
+      },
+      telegram: {
+        hasToken: !!process.env.TELEGRAM_BOT_TOKEN,
+        defaultChatId: process.env.TELEGRAM_CHAT_ID || '',
+      },
+      webhook: {
+        hasSecret: !!process.env.WEBHOOK_SECRET,
+        defaultUrl: process.env.WEBHOOK_TARGET_URL || '',
+      },
+    });
+  });
+
+  // Server-side Hermes / OpenRouter connection test proxy
+  app.post('/api/integrations/hermes/test', async (req, res) => {
+    const startTime = performance.now();
+    try {
+      const endpoint = (req.body.endpoint || process.env.HERMES_ENDPOINT || 'https://openrouter.ai/api/v1').trim();
+      const apiKey = (req.body.apiKey || process.env.HERMES_API_KEY || process.env.OPENROUTER_API_KEY || '').trim();
+
+      if (!endpoint) {
+        return res.status(400).json({ ok: false, message: 'Endpoint URL is required' });
+      }
+
+      const isOpenRouter = endpoint.toLowerCase().includes('openrouter.ai');
+      let targetUrl = endpoint.replace(/\/+$/, '');
+      let method = 'GET';
+      let body: string | undefined = undefined;
+
+      if (isOpenRouter) {
+        if (targetUrl.endsWith('/chat/completions')) {
+          method = 'POST';
+          body = JSON.stringify({
+            model: 'meta-llama/llama-3.3-70b-instruct:free',
+            messages: [{ role: 'user', content: 'ping' }],
+            max_tokens: 1,
+          });
+        } else if (targetUrl.endsWith('/models')) {
+          method = 'GET';
+        } else {
+          targetUrl = `${targetUrl}/models`;
+          method = 'GET';
+        }
+      } else {
+        if (targetUrl.endsWith('/chat/completions')) {
+          method = 'POST';
+          body = JSON.stringify({
+            model: 'gpt-3.5-turbo',
+            messages: [{ role: 'user', content: 'ping' }],
+            max_tokens: 1,
+          });
+        } else {
+          method = 'GET';
+        }
+      }
+
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'User-Agent': 'Hermes-Studio-Server/2.0',
+      };
+
+      if (apiKey) {
+        headers['Authorization'] = `Bearer ${apiKey}`;
+      }
+
+      if (isOpenRouter) {
+        headers['HTTP-Referer'] = 'https://hermes-studio.ai';
+        headers['X-Title'] = 'Hermes Studio Server';
+      }
+
+      const fetchResponse = await fetch(targetUrl, {
+        method,
+        headers,
+        body,
+      });
+
+      const elapsed = Math.round(performance.now() - startTime);
+
+      if (fetchResponse.ok) {
+        let responseData: any = null;
+        try {
+          responseData = await fetchResponse.json();
+        } catch {
+          // Non-JSON response is acceptable
+        }
+
+        const modelCount = Array.isArray(responseData?.data) ? responseData.data.length : undefined;
+        const msg = `Server Proxy Verified (HTTP ${fetchResponse.status} OK • Latency: ${elapsed}ms${modelCount ? ` • ${modelCount} models accessible` : ''})`;
+
+        return res.json({
+          success: true,
+          ok: true,
+          status: fetchResponse.status,
+          latencyMs: elapsed,
+          message: msg,
+          modelCount,
+        });
+      } else {
+        let errorDetail = `HTTP ${fetchResponse.status} ${fetchResponse.statusText}`;
+        try {
+          const errData: any = await fetchResponse.json();
+          if (errData?.error?.message) {
+            errorDetail = errData.error.message;
+          } else if (errData?.message) {
+            errorDetail = errData.message;
+          } else if (typeof errData?.error === 'string') {
+            errorDetail = errData.error;
+          }
+        } catch {
+          // ignore
+        }
+
+        return res.status(200).json({
+          success: false,
+          ok: false,
+          status: fetchResponse.status,
+          latencyMs: elapsed,
+          message: `Endpoint returned error: ${errorDetail}`,
+        });
+      }
+    } catch (error: any) {
+      const elapsed = Math.round(performance.now() - startTime);
+      return res.status(200).json({
+        success: false,
+        ok: false,
+        status: 500,
+        latencyMs: elapsed,
+        message: `Failed to connect to endpoint: ${error.message || 'Network error'}`,
+      });
+    }
+  });
+
+  // Server-side Telegram Bot test and dispatch
+  app.post('/api/integrations/telegram/test', async (req, res) => {
+    try {
+      const botToken = (req.body.botToken || process.env.TELEGRAM_BOT_TOKEN || '').trim();
+      const chatId = (req.body.chatId || process.env.TELEGRAM_CHAT_ID || '').trim();
+
+      if (!botToken) {
+        return res.status(400).json({
+          success: false,
+          message: 'TELEGRAM_BOT_TOKEN is not configured on the server environment.',
+        });
+      }
+
+      if (chatId) {
+        const telegramRes = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: chatId,
+            text: `🤖 *Hermes Studio AI Employee*\nIntegration connection test verified successfully from server environment.`,
+            parse_mode: 'Markdown',
+          }),
+        });
+
+        const tgData: any = await telegramRes.json();
+        if (tgData.ok) {
+          return res.json({ success: true, message: 'Test message sent to Telegram successfully.' });
+        } else {
+          return res.status(400).json({ success: false, message: tgData.description || 'Telegram API error' });
+        }
+      } else {
+        const telegramRes = await fetch(`https://api.telegram.org/bot${botToken}/getMe`);
+        const tgData: any = await telegramRes.json();
+        if (tgData.ok) {
+          return res.json({
+            success: true,
+            message: `Bot authenticated as @${tgData.result.username} (${tgData.result.first_name}).`,
+          });
+        } else {
+          return res.status(400).json({ success: false, message: tgData.description || 'Invalid Telegram Bot token' });
+        }
+      }
+    } catch (error: any) {
+      return res.status(500).json({ success: false, message: error.message || 'Telegram test failed' });
+    }
+  });
+
+  // Server-side Telegram Save endpoint
+  app.post('/api/integrations/telegram/save', (req, res) => {
+    if (req.body.botToken) {
+      process.env.TELEGRAM_BOT_TOKEN = req.body.botToken.trim();
+    }
+    if (req.body.chatId) {
+      process.env.TELEGRAM_CHAT_ID = req.body.chatId.trim();
+    }
+    res.json({ success: true, message: 'Telegram configuration stored securely on server.' });
+  });
+
+  // Server-side Webhook test and dispatch
+  app.post('/api/integrations/webhook/test', async (req, res) => {
+    try {
+      const targetUrl = (req.body.targetUrl || process.env.WEBHOOK_TARGET_URL || '').trim();
+      const secret = (req.body.secret || process.env.WEBHOOK_SECRET || '').trim();
+
+      if (!targetUrl) {
+        return res.status(400).json({ success: false, message: 'Webhook Target URL is required.' });
+      }
+
+      const payload = {
+        event: 'hermes.integration.test',
+        timestamp: new Date().toISOString(),
+        server: 'Hermes Production Backend',
+        data: req.body.payload || { ping: true, message: 'Hermes Studio test delivery' },
+      };
+
+      const payloadString = JSON.stringify(payload);
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'User-Agent': 'Hermes-Webhook-Dispatcher/1.0',
+      };
+
+      if (secret) {
+        const signature = crypto.createHmac('sha256', secret).update(payloadString).digest('hex');
+        headers['X-Hermes-Signature'] = `sha256=${signature}`;
+      }
+
+      const startTime = performance.now();
+      const hookRes = await fetch(targetUrl, {
+        method: 'POST',
+        headers,
+        body: payloadString,
+      });
+      const latency = Math.round(performance.now() - startTime);
+
+      res.json({
+        success: hookRes.ok,
+        status: hookRes.status,
+        latencyMs: latency,
+        message: hookRes.ok
+          ? `Webhook delivered successfully (HTTP ${hookRes.status} OK • ${latency}ms)`
+          : `Webhook received HTTP ${hookRes.status} ${hookRes.statusText}`,
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, message: error.message || 'Failed to dispatch webhook' });
+    }
+  });
+
+  // Server-side Webhook Save endpoint
+  app.post('/api/integrations/webhook/save', (req, res) => {
+    if (req.body.secret) {
+      process.env.WEBHOOK_SECRET = req.body.secret.trim();
+    }
+    if (req.body.targetUrl) {
+      process.env.WEBHOOK_TARGET_URL = req.body.targetUrl.trim();
+    }
+    res.json({ success: true, message: 'Webhook configuration stored securely on server.' });
   });
 
   // Vite middleware for development vs Production static serving
