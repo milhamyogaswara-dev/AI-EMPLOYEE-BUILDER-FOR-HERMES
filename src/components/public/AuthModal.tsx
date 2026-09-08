@@ -387,14 +387,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         </div>
 
         {/* Mode Switcher Tabs */}
-        <div className="relative z-10 grid grid-cols-2 p-1 bg-[#181818] border border-white/10 rounded-xl mb-5">
+        <div className="relative z-10 grid grid-cols-2 p-1 bg-[#141414] border border-white/10 rounded-xl mb-5">
           <button
             type="button"
             id="tab-auth-signin"
             onClick={() => { setMode('signin'); resetForm(); }}
             className={`py-2 text-xs font-semibold rounded-lg transition-all ${
               mode === 'signin' 
-                ? 'bg-white text-black shadow-md' 
+                ? 'bg-[#FF5F1F] text-white shadow-[0_0_15px_rgba(255,95,31,0.3)]' 
                 : 'text-gray-400 hover:text-white'
             }`}
           >
@@ -406,7 +406,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             onClick={() => { setMode('signup'); resetForm(); }}
             className={`py-2 text-xs font-semibold rounded-lg transition-all ${
               mode === 'signup' 
-                ? 'bg-[#FF5F1F] text-white shadow-md' 
+                ? 'bg-[#FF5F1F] text-white shadow-[0_0_15px_rgba(255,95,31,0.3)]' 
                 : 'text-gray-400 hover:text-white'
             }`}
           >
@@ -437,16 +437,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           </div>
         )}
 
-        {/* Google One-Click Button */}
+        {/* Google One-Click Button (Dark Mode) */}
         <button
           type="button"
           id="btn-google-auth-modal"
           onClick={handleGoogleAuth}
           disabled={isSubmitting}
-          className="relative z-10 group w-full py-3 rounded-xl bg-white text-black font-semibold text-sm hover:bg-gray-100 transition-all duration-300 flex items-center justify-center gap-3 active:scale-[0.98] disabled:opacity-70 disabled:active:scale-100 overflow-hidden shadow-sm"
+          className="relative z-10 group w-full py-3 rounded-xl bg-[#181818] hover:bg-[#222222] text-white font-medium text-xs sm:text-sm border border-white/10 hover:border-[#FF5F1F]/40 transition-all duration-300 flex items-center justify-center gap-3 active:scale-[0.98] disabled:opacity-70 disabled:active:scale-100 overflow-hidden shadow-md cursor-pointer"
         >
           {isSubmitting ? (
-            <div className="w-4 h-4 border-2 border-black/20 border-t-black rounded-full animate-spin" />
+            <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
           ) : (
             <svg viewBox="0 0 24 24" className="w-4 h-4" xmlns="http://www.w3.org/2000/svg">
               <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>

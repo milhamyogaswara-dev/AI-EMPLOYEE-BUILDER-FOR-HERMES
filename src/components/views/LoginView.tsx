@@ -346,13 +346,13 @@ export const LoginView: React.FC = () => {
           </div>
 
           {/* Mode Switcher Tabs */}
-          <div className="grid grid-cols-2 p-1 bg-[#151515] border border-white/10 rounded-xl mb-6">
+          <div className="grid grid-cols-2 p-1 bg-[#141414] border border-white/10 rounded-xl mb-6">
             <button
               type="button"
               onClick={() => { setMode('signin'); resetForm(); }}
               className={`py-2.5 text-xs font-semibold rounded-lg transition-all ${
                 mode === 'signin' 
-                  ? 'bg-white text-black shadow-md' 
+                  ? 'bg-[#FF5F1F] text-white shadow-[0_0_15px_rgba(255,95,31,0.3)]' 
                   : 'text-gray-400 hover:text-white'
               }`}
             >
@@ -363,7 +363,7 @@ export const LoginView: React.FC = () => {
               onClick={() => { setMode('signup'); resetForm(); }}
               className={`py-2.5 text-xs font-semibold rounded-lg transition-all ${
                 mode === 'signup' 
-                  ? 'bg-[#FF5F1F] text-white shadow-md' 
+                  ? 'bg-[#FF5F1F] text-white shadow-[0_0_15px_rgba(255,95,31,0.3)]' 
                   : 'text-gray-400 hover:text-white'
               }`}
             >
@@ -394,17 +394,17 @@ export const LoginView: React.FC = () => {
             </div>
           )}
 
-          {/* Google One-Click Button */}
+          {/* Google One-Click Button (Dark Mode) */}
           <button
             type="button"
             onClick={handleGoogleAuth}
             disabled={isSubmitting}
-            className="group relative w-full py-3.5 rounded-xl bg-white text-black font-semibold text-sm hover:bg-gray-100 transition-all duration-300 flex items-center justify-center gap-3 active:scale-[0.98] disabled:opacity-70 disabled:active:scale-100 overflow-hidden shadow-sm"
+            className="group relative w-full py-3.5 rounded-xl bg-[#181818] hover:bg-[#222222] text-white border border-white/10 hover:border-[#FF5F1F]/40 font-semibold text-sm transition-all duration-300 flex items-center justify-center gap-3 active:scale-[0.98] disabled:opacity-70 disabled:active:scale-100 overflow-hidden shadow-md cursor-pointer"
           >
-            <div className="absolute inset-0 bg-gradient-to-r from-white/0 via-black/5 to-white/0 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-700 ease-in-out" />
+            <div className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/5 to-white/0 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-700 ease-in-out" />
             
             {isSubmitting ? (
-              <div className="w-5 h-5 border-2 border-black/20 border-t-black rounded-full animate-spin" />
+              <div className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin" />
             ) : (
               <svg viewBox="0 0 24 24" className="w-5 h-5" xmlns="http://www.w3.org/2000/svg">
                 <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
