@@ -50,6 +50,7 @@ import {
 import { upsertLocalUser } from './utils/storage';
 import { useAuth } from './contexts/AuthContext';
 import { LoginView } from './components/views/LoginView';
+import { PublicHomepage } from './components/public/PublicHomepage';
 import { Sidebar, NavView } from './components/Sidebar';
 import { Header } from './components/Header';
 import { AICoachBar } from './components/AICoachBar';
@@ -500,7 +501,7 @@ export default function App() {
   }
 
   if (!currentUser) {
-    return <LoginView />;
+    return <PublicHomepage />;
   }
 
   if (userProfile.accountStatus === 'pending') {

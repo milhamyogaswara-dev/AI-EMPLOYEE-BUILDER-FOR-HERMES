@@ -1,6 +1,6 @@
 {
-  "name": "AI Employee Builder for Hermes",
-  "description": "Train, equip, test, and deploy personalized Hermes AI assistants and employees with structured workflows.",
+  "name": "AI Employee Builder for Hermes | Bangun AI Employee Anda",
+  "description": "Bangun dan latih Hermes Agent menjadi AI Employee dengan role, SOP, skill, memory, authority, automation, dan workflow yang lebih terstruktur.",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
