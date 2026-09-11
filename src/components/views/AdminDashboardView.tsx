@@ -20,6 +20,7 @@ import {
   Users, 
   RefreshCw,
   X,
+  XCircle,
   Calendar,
   Layers,
   ChevronRight,
