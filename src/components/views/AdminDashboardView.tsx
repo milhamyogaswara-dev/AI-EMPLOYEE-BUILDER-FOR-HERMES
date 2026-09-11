@@ -32,6 +32,7 @@ export const AdminDashboardView: React.FC = () => {
   const [users, setUsers] = useState<UserProfile[]>(() => loadAllUsers());
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [planFilter, setPlanFilter] = useState<string>('ALL');
@@ -93,6 +94,7 @@ export const AdminDashboardView: React.FC = () => {
   const fetchUsers = async () => {
     try {
       setRefreshing(true);
+      setSyncError(null);
       const serverUsers = await apiClient.getAdminUsers();
       if (serverUsers && Array.isArray(serverUsers)) {
         setUsers(serverUsers);
@@ -100,8 +102,9 @@ export const AdminDashboardView: React.FC = () => {
       } else {
         setUsers(loadAllUsers());
       }
-    } catch (err) {
+    } catch (err: any) {
       console.warn('Notice fetching users (using local cache):', err);
+      setSyncError('Backend database tidak dapat dijangkau.');
       setUsers(loadAllUsers());
     } finally {
       setLoading(false);
@@ -541,6 +544,16 @@ export const AdminDashboardView: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {syncError && (
+        <div className="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-500/30 flex items-start gap-3 text-red-200">
+          <XCircle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
+          <div className="text-sm">
+            <div className="font-bold text-red-300 mb-1">Koneksi Terputus</div>
+            {syncError} Data di bawah ini ditampilkan dari cache lokal sementara.
+          </div>
+        </div>
+      )}
 
       {/* Summary KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">

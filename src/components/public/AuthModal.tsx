@@ -166,12 +166,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             });
 
             if (res.user.email) {
-              const emailKey = res.user.email.toLowerCase().replace(/[^a-zA-Z0-9]/g, '_');
-              if (emailKey !== res.user.uid) {
-                await setDoc(doc(db, 'users', emailKey), profilePayload, { merge: true }).catch((err) => {
-                  if (isQuotaError(err)) markQuotaExhausted();
-                });
-              }
+              // Intentionally skipping duplicate record creation
+              // We now rely solely on the canonical user.uid document.
             }
           }
         }
@@ -296,12 +292,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               console.warn('Email user profile write info:', err);
             });
 
-            const emailKey = emailClean.replace(/[^a-zA-Z0-9]/g, '_');
-            if (emailKey !== user.uid) {
-              await setDoc(doc(db, 'users', emailKey), profilePayload, { merge: true }).catch((err) => {
-                if (isQuotaError(err)) markQuotaExhausted();
-              });
-            }
+            // Intentionally skipping duplicate record creation
+            // We now rely solely on the canonical user.uid document.
           }
         }
         onClose();
