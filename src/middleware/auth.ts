@@ -16,13 +16,21 @@ export const requireAuth = async (
     return res.status(401).json({ error: 'Unauthorized: Missing token' });
   }
 
-  const token = authHeader.split('Bearer ')[1];
+  const token = authHeader.split('Bearer ')[1]?.trim();
+  if (!token) {
+    return res.status(401).json({ error: 'Unauthorized: Empty token' });
+  }
+
   try {
     const decodedToken = await adminAuth.verifyIdToken(token);
     req.user = decodedToken;
     next();
-  } catch (error) {
-    console.error('Error verifying Firebase ID token:', error);
+  } catch (error: any) {
+    if (error?.code === 'auth/argument-error' || error?.code === 'auth/id-token-expired') {
+      console.warn(`Auth failed: ${error.code}`);
+    } else {
+      console.error('Error verifying Firebase ID token:', error);
+    }
     return res.status(401).json({ error: 'Unauthorized: Invalid token' });
   }
 };
